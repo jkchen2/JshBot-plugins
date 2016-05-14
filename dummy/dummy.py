@@ -135,6 +135,8 @@ async def get_response(bot, message, parsed_command, direct):
         #   satisfied. The order is the same as was specified initially.
         if plan_index == 0: # myoption
             response = "You called the first command!"
+            if direct:
+                response += "This is called in a direct message!"
             # Do other stuff...
 
         elif plan_index == 1: # custom/attached

@@ -92,7 +92,7 @@ async def get_response(bot, message, parsed_command, direct):
                         "Failed to update the status.", e=e)
 
     elif plan_index == 1: # Change nickname
-        if not message.channel.is_private:
+        if not direct:
             try:
                 await bot.change_nickname(
                         message.server.me, arguments if arguments else None)
