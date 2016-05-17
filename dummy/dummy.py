@@ -43,12 +43,13 @@ def get_commands():
         '?custom ?attached:',
         'trailing ::+',
         'grouped ^',
-        'complex: ?other: :#'],[
+        'complex: ?other: :#',
+        'marquee ^'],[
         ('myoption', 'option', 'o'),
         ('trailing', 'trail'),
         ('grouped', 'blocked')])
     commands['myothercommand'] = (['&'], [])
-        
+
     # Shortcuts
     shortcuts['complex'] = ('mycommand -complex {} -other {} {} {}', ':::#')
     shortcuts['group'] = ('mycommand -grouped {}', '^')
@@ -71,7 +72,8 @@ def get_commands():
                 '(arg 3) (...)', 'The complex flag has a required associated '
                 'positional argument, and the other flag has one too if it is '
                 'specified. Additionally, there will be a requirement of at '
-                'least 1 trailing argument.')],
+                'least 1 trailing argument.'),
+            ('-marquee <text>', 'Creates a marquee that loops three times.')],
         'shortcuts': [
             ('complex <attached> <other> <arg1> (arg2) (...)',
             '-complex <attached> -other <other> <arg1> (arg2) (...)'),
@@ -112,7 +114,7 @@ async def get_response(bot, message, parsed_command, direct):
     #       extra processing and editing. The function it will call is
     #       handle_active_message(message_reference, extra). See the comments
     #       for handle_active_message for more information.
-    #       
+    #
     message_type = 0
 
     # The extra variable is used for the second and third message types.
@@ -149,7 +151,7 @@ async def get_response(bot, message, parsed_command, direct):
             # To get the argument attached to an option, simply access it from
             #   the options dictionary.
             if 'attached' in options:
-                response += ("The attached argument: " + options['attached'] + 
+                response += ("The attached argument: " + options['attached'] +
                     '\n') # Can't believe this is on a line by itself.
 
             # In case somebody was looking for the help...
@@ -177,9 +179,21 @@ async def get_response(bot, message, parsed_command, direct):
                 response += "The other option has: " + options['other'] + '\n'
             response += "Lastly, the trailing arguments: " + str(arguments)
 
+        elif plan_index == 5: # (Very slow) marquee
+
+            # This demonstrates the active message type. Check
+            #   handle_active_message to see how it works.
+            if not arguments or len(arguments) > 100 or '\n' in arguments:
+                response = ("Must have text 1-100 characters long, and must "
+                        "not have any new lines.")
+            else:
+                message_type = 3 # active
+                extra = ('marquee', arguments)
+                response = "Setting up marquee..."
+
     # Here's another command base.
     elif base == 'myothercommand':
-        
+
         # We only have one command, checking for plan_index isn't necessary.
         if arguments:
             response = ("You called the other command and gave this "
@@ -188,6 +202,28 @@ async def get_response(bot, message, parsed_command, direct):
             response = "You called the other command with no arguments."
 
     return (response, tts, message_type, extra)
+
+async def handle_active_message(bot, message_reference, extra):
+    '''
+    This function is called if the given message was marked as active
+    (message_type of 3).
+    '''
+    if extra[0] == 'marquee': # Handle the marquee active message
+
+        # Set text expanded with whitespace
+        total_length = 40 + len(extra[1])
+        text = '{0: ^{1}}'.format(extra[1], total_length)
+
+        # Loop through the text three times
+        for it in range(3):
+            for move in range(total_length - 20):
+                moving_text = '`|{:.20}|`'.format(text[move:])
+                await asyncio.sleep(1) # Don't get rate limited!
+                await bot.edit_message(message_reference, moving_text)
+
+        # When the marquee is done, just display the text
+        await asyncio.sleep(1)
+        await bot.edit_message(message_reference, extra[1])
 
 # If necessary, discord.Client events can be defined here, and they will be
 #   called appropriately. Be sure to include the bot argument first!
