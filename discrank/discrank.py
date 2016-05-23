@@ -4,6 +4,7 @@ import requests
 import time
 import random
 import math
+import aiohttp
 
 # Debugging
 import logging
@@ -11,6 +12,7 @@ import logging
 from riotwatcher import RiotWatcher
 from riotwatcher import LoLException, error_429
 
+from jshbot import data
 from jshbot.exceptions import ErrorTypes, BotException
 
 __version__ = '0.1.3'
@@ -25,7 +27,7 @@ def get_commands():
     commands = {}
     shortcuts = {}
     manual = {}
-    
+
     commands['blitz'] = ([
         'summoner: ?extra',
         'match: ?basic',
@@ -181,7 +183,7 @@ def get_mastery_wrapper(bot, summoner_id, top=True, champion_id=None):
         champion = 's'
     url = ('https://{region1}.api.pvp.net/championmastery/location/{region2}/'
         'player/{player}/{top}champion{champion}?api_key={key}').format(
-            region1=region1, region2=region2, player=summoner_id, 
+            region1=region1, region2=region2, player=summoner_id,
             top=('top' if top else ''), champion=champion, key=api_key)
     r = requests.get(url)
     try:
@@ -194,7 +196,7 @@ def get_mastery_wrapper(bot, summoner_id, top=True, champion_id=None):
             api_cooldown()
         else:
             logging.error("This is the requests result: " + str(result))
-            raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION, 
+            raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION,
                     "Failed to retrieve mastery data.")
     else:
         return result
@@ -298,7 +300,7 @@ def get_bans(static, match, team, finished=True):
     return bans
 
 
-def get_match_table(static, match, mastery, summoner_id, finished=True, 
+def get_match_table(static, match, mastery, summoner_id, finished=True,
         verbose=False):
     '''
     Returns a scoreboard view of the given match. Values differ depending on
@@ -360,7 +362,7 @@ def get_match_table(static, match, mastery, summoner_id, finished=True,
 
         # Loop through each team
         for team in (100, 200):
-            
+
             # Team
             response += '{} Team'.format(
                     'Blue' if team == 100 else 'Red')
@@ -388,7 +390,7 @@ def get_match_table(static, match, mastery, summoner_id, finished=True,
             for index, member in enumerate(match['participants']):
                 if member['teamId'] != team: # Continue
                     continue
-                
+
                 # Get summoner name
                 if finished:
                     summoner = match['participantIdentities'][index]
@@ -410,13 +412,13 @@ def get_match_table(static, match, mastery, summoner_id, finished=True,
                 champion = static[1][str(member['championId'])]['name']
                 spell1 = static[2][str(member['spell1Id'])]['name']
                 spell2 = static[2][str(member['spell2Id'])]['name']
-                
+
                 # Get KDA
                 if finished: # Pull from participant data
                     stats = member['stats']
                     kills, deaths = stats['kills'], stats['deaths']
                     assists = stats['assists']
-                    value = "({0:.1f})".format(((kills + assists) / 
+                    value = "({0:.1f})".format(((kills + assists) /
                             (1 if deaths == 0 else deaths)))
                     kda = "{0[kills]}/{0[deaths]}/{0[assists]} {1}".format(
                             stats, value)
@@ -450,7 +452,7 @@ def get_match_table(static, match, mastery, summoner_id, finished=True,
         champion_id = participant['championId']
         if finished: # Pull from participant data
             stats = participant['stats']
-            value = "({0:.1f})".format(((stats['kills'] + stats['assists']) / 
+            value = "({0:.1f})".format(((stats['kills'] + stats['assists']) /
                     (1 if stats['deaths'] == 0 else stats['deaths'])))
             kda = "{0[kills]}/{0[deaths]}/{0[assists]} {1}".format(stats, value)
         else: # Pull from league data
@@ -482,7 +484,7 @@ def get_match_table(static, match, mastery, summoner_id, finished=True,
             response += ("**Game Type:** {0}\n"
                     "{1} - {2} {3} - {4} - {5}\n"
                     "Side: {6}\n"
-                    "Time: {7}:{8}").format(game, champion, kda, mastery_data, 
+                    "Time: {7}:{8}").format(game, champion, kda, mastery_data,
                             spell1, spell2, side, minutes, seconds)
 
     return response
@@ -600,14 +602,14 @@ def get_mastery_table(bot, static, watcher, name, champion=None):
     if champion:
         try:
             champion_id = static[1][champion.replace(' ', '').lower()]['id']
-            champion_data = get_mastery_wrapper(bot, summoner['id'], 
+            champion_data = get_mastery_wrapper(bot, summoner['id'],
                     champion_id=champion_id)
         except KeyError:
             raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION,
                     "Champion not found.")
     else:
         champion_data = get_mastery_wrapper(bot, summoner['id'], top=False)
-    
+
     labels = '#  | Champion      | Points    | Lvl | Box | Grade | Last Played '
     line = '---|---------------|-----------|-----|-----|-------|-------------'
 
@@ -641,7 +643,7 @@ def get_ranked_stats_wrapper(watcher, summoner_id):
 def get_challenge_result(bot, static, watcher, arguments):
     '''
     This returns a result of the challenge minigame. The minigame consists of
-    pitting two summoners' champions' mastery values against each other. 
+    pitting two summoners' champions' mastery values against each other.
     '''
 
     summoners = [arguments[0], arguments[1]]
@@ -753,7 +755,7 @@ async def get_response(bot, message, parsed_command, direct):
 
     if base == 'blitz':
 
-        static = bot.data['discrank.py'] # Static data and the watcher
+        static = data.get(bot, __name__, 'static_data', volatile=True)
         if plan_index == 0: # Get basic summoner information
             response = get_summoner_information(bot, static, static[0],
                     options['summoner'], verbose=('extra' in options))
@@ -767,19 +769,14 @@ async def get_response(bot, message, parsed_command, direct):
         elif plan_index == 3: # Challenge
             response = get_challenge_result(bot, static, static[0], arguments)
         elif plan_index == 4: # Chests
-            response = get_chests(bot, static, static[0], options['chests']) 
+            response = get_chests(bot, static, static[0], options['chests'])
 
     return (response, tts, message_type, extra)
 
-async def on_ready(bot):
-
-    # Obtain all static data required
-    watcher = RiotWatcher(bot.configurations['discrank.py']['token'])
-    if not watcher.can_make_request():
-        raise BotException(ErrorTypes.STARTUP, EXCEPTION,
-            "The given Riot API token cannot get requests.")
-
-    # Add champions by ID and name, and skills by ID
+async def get_static_data(watcher):
+    '''
+    Wrapper to get static data to prevent blocking in the event loop.
+    '''
     try:
         champions = watcher.static_get_champion_list(data_by_id=True)['data']
         champions_named = watcher.static_get_champion_list()['data']
@@ -793,10 +790,24 @@ async def on_ready(bot):
         else:
             raise BotException(ErrorTypes.STARTUP, EXCEPTION,
                     "Failed to retrieve static data.", e=e)
-
     champions_named = dict(
             (key.lower(), value) for key, value in champions_named.items())
     champions.update(champions_named)
+
+    return (champions, spells)
+
+async def on_ready(bot):
+
+    # Obtain all static data required
+    watcher = RiotWatcher(bot.configurations['discrank.py']['token'])
+
+    #champion_url
+    if not watcher.can_make_request():
+        raise BotException(ErrorTypes.STARTUP, EXCEPTION,
+            "The given Riot API token cannot get requests.")
+
+    # Add champions by ID and name, and skills by ID
+    champions, spells = await get_static_data(watcher)
 
     # Add game modes by queue type and name
     modes = {
@@ -873,5 +884,6 @@ async def on_ready(bot):
         "TEAM_BUILDER_DRAFT_RANKED_5x5": "410"
     }
 
-    bot.data['discrank.py'] = [watcher, champions, spells, modes]
+    data.add(bot, __name__, 'static_data', [watcher, champions, spells, modes],
+            volatile=True)
 
