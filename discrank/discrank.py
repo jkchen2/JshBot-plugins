@@ -349,10 +349,11 @@ def get_match_table(static, match, mastery, summoner_id, finished=True,
         response = '```diff\n' # Use + and - to highlight
 
         # Get winning team number
-        if finished and participant['stats']['winner']:
-            winning_team = participant['teamId']
-        elif finished:
-            winning_team = 100 if participant['teamId'] == 200 else 100
+        if finished:
+            if participant['stats']['winner']:
+                winning_team = participant['teamId']
+            else:
+                winning_team = 100 if participant['teamId'] == 200 else 200
 
         # Add current game time
         response += "{2}Game Time: {0}:{1}\n".format(minutes, seconds,
