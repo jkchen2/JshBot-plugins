@@ -4,7 +4,7 @@ import os.path
 import urllib.request
 import random
 
-from jshbot import servers
+from jshbot import data
 
 from jshbot.exceptions import BotException
 
@@ -65,7 +65,7 @@ async def get_response(bot, message, parsed_command, direct):
 
     response = "Bot stuff updated!"
 
-    if not servers.is_owner(bot, message.author.id):
+    if not data.is_owner(bot, message.author.id):
         raise BotException(EXCEPTION,
                 "You must be a bot owner for these commands.")
 
