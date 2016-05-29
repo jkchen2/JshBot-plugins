@@ -8,7 +8,7 @@ from itertools import groupby
 from operator import itemgetter
 
 from jshbot import data
-from jshbot.exceptions import ErrorTypes, BotException
+from jshbot.exceptions import BotException
 
 __version__ = '0.1.0'
 EXCEPTION = 'Tag demo'
@@ -98,16 +98,15 @@ async def create_tag(bot, tag_database, tag_name, database_name, author_id,
 
     # Check for issues
     if len(tag_name) > length_limit:
-        raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION,
-                ("The tag name cannot be longer than {} characters "
-                    "long").format(length_limit))
+        raise BotException(EXCEPTION, "The tag name cannot be longer than {} "
+                "characters long".format(length_limit))
     elif len(database_name) == 0:
-        raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION, "No.")
+        raise BotException(EXCEPTION, "No.")
     elif database_name in tag_database:
-        raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION,
+        raise BotException(EXCEPTION,
                 "Tag '{}' already exists.".format(database_name))
     elif len(tag_database) + 1 > tag_limit:
-        raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION,
+        raise BotException(EXCEPTION,
                 "The tag limit has been reached ({})".format(tag_limit))
     # Create the tag
     else:
@@ -141,8 +140,8 @@ def remove_tag(bot, tag_database, tag_name, server, author_id):
                 attribute='name', safe=True, strict=True)
         if author is None:
             author = "who is no longer on this server."
-        raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION,
-            "You are not the tag owner, {}.".format(author))
+        raise BotException(EXCEPTION,
+                "You are not the tag owner, {}.".format(author))
     else:
         del tag_database[tag_name]
 
@@ -270,8 +269,7 @@ async def retrieve_tag(bot, tag_database, tag_name, author_id, channel_id,
     # if tag_author != author_id and author_id is not
     if tag['private'] and author_id != tag['author'] and not data.is_mod(bot,
             server, author_id):
-        raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION,
-                "This tag is private.")
+        raise BotException(EXCEPTION, "This tag is private.")
     # TODO: Add mute checking and nsfw checking
     #mute_settings = data.get(bot, __name__, None, server_id=server.id,
     #    channel_id=channel_id)
@@ -300,7 +298,7 @@ async def get_response(bot, message, parsed_command, direct):
                     save=True)
 
         elif plan_index not in (6, 7):
-            raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION,
+            raise BotException(EXCEPTION,
                     "This command cannot be used in a direct message.")
 
         if plan_index in (0, 1): # create
@@ -321,7 +319,7 @@ async def get_response(bot, message, parsed_command, direct):
             tag = get_tag(tag_database, arguments)
             raw_tag = str(tag['raw'])
             if len(raw_tag) > 1950 or 'file' in options:
-                await send_text_as_file(bot, message.channel, raw_tag, 'raw')
+                await bot.send_text_as_file(message.channel, raw_tag, 'raw')
             else:
                 response = '```\n{}```'.format(raw_tag)
 
@@ -335,7 +333,7 @@ async def get_response(bot, message, parsed_command, direct):
         elif plan_index in (6, 7): # list and search
             response = list_search_tags(bot, message, plan_index, arguments)
             if len(response) > 1950:
-                await send_text_as_file(bot, message.channel, response, 'tags')
+                await bot.send_text_as_file(message.channel, response, 'tags')
             else:
                 response = '```markdown\n' + response + '```'
 
@@ -358,8 +356,7 @@ def get_tag(tag_database, tag_name, include_name=False):
     tag = tag_database.get(tag_name, None)
     if tag is None:
         # TODO: Add a didyoumean feature
-        raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION,
-                "Tag '{}' not found.".format(tag_name))
+        raise BotException(EXCEPTION, "Tag '{}' not found.".format(tag_name))
     elif include_name:
         return (tag, tag_name)
     else:
@@ -376,12 +373,4 @@ def cleaned_tag_name(name):
         if 48 <= num <= 57 or 65 <= num <= 90 or 97 <= num <= 122:
             cleaned_list.append(char)
     return ''.join(cleaned_list).lower()
-
-async def send_text_as_file(bot, channel, text, filename):
-    '''
-    Sends the given text as a text file because it is over 2000 characters.
-    '''
-    with open(filename + '.txt', 'w') as text_file:
-        text_file.write(text)
-    await bot.send_file(channel, filename + '.txt')
 

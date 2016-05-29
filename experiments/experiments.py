@@ -10,7 +10,7 @@ import logging
 import datetime
 
 from jshbot import data
-from jshbot.exceptions import ErrorTypes, BotException
+from jshbot.exceptions import BotException
 
 __version__ = '¯\_(ツ)_/¯'
 EXCEPTION = 'Experiments'
@@ -24,6 +24,7 @@ def get_commands():
 
     commands['test'] = (['&'],[()])
     commands['timemasheen'] = (['^'], [()])
+    commands['play'] = (['^'], [()])
 
     return (commands, shortcuts, manual)
 
@@ -40,13 +41,11 @@ async def get_response(bot, message, parsed_command, direct):
             text = arguments.replace(' ', '').lower()
             response = ' '.join([char for char in text])
 
-        else:
-            print("Sleeping...")
-            for it in range(10):
-                print(it)
-                await asyncio.sleep(1)
-            print("Done sleeping.")
-            response = "Got a response!"
+        else: # asyncio testing
+            long_future = bot.loop.run_in_executor(None, long_function)
+            await long_future
+            #long_function()
+            response = "Finished sleeping"
 
     elif base == 'timemasheen': # carter's time masheen
         for delimiter in ('/', '.', '-'):
@@ -58,32 +57,38 @@ async def get_response(bot, message, parsed_command, direct):
         await send_logs_as_file(bot, message.channel, start_date, end_date)
         message_type = 1
 
+    elif base == 'play': # ytdl stuff
+        response = "Going to test this later."
+
     return (response, tts, message_type, extra)
+
+def long_function():
+    time.sleep(10)
 
 async def send_logs_as_file(bot, channel, start_date, end_date):
     '''
     Wrapper function for Carter's time machine.
     '''
-    with open('carter.txt', 'w') as text_file:
-        messages = []
-        async for message in bot.logs_from(channel, limit=20000,
-                before=end_date, after=start_date):
-            messages.append(message)
-        for message in reversed(messages):
-            if message.edited_timestamp:
-                edited = ' (edited {})'.format(message.edited_timestamp)
-            else:
-                edited = ''
-            if message.attachments:
-                urls = []
-                for attachment in message.attachments:
-                    urls.append(attachment['url'])
-                attached = ' (attached {})'.format(urls)
-            else:
-                attached = ''
-            text = ("{0.author.id} ({0.author.name}) at {0.timestamp}{1}{2}: "
-                    "\n\t{0.content}\n").format(message, edited, attached)
-            text_file.write(text)
+    messages = []
+    large_text = ''
+    async for message in bot.logs_from(channel, limit=20000,
+            before=end_date, after=start_date):
+        messages.append(message)
+    for message in reversed(messages):
+        if message.edited_timestamp:
+            edited = ' (edited {})'.format(message.edited_timestamp)
+        else:
+            edited = ''
+        if message.attachments:
+            urls = []
+            for attachment in message.attachments:
+                urls.append(attachment['url'])
+            attached = ' (attached {})'.format(urls)
+        else:
+            attached = ''
+        text = ("{0.author.id} ({0.author.name}) at {0.timestamp}{1}{2}: "
+                "\n\t{0.content}\n").format(message, edited, attached)
+        large_text += text
 
-    await bot.send_file(channel, 'carter.txt')
+    await bot.send_text_as_file(channel, large_text, 'carter')
 

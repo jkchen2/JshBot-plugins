@@ -24,7 +24,7 @@
 import discord
 import asyncio
 
-from jshbot.exceptions import ErrorTypes, BotException
+from jshbot.exceptions import BotException
 
 __version__ = '0.1.0'
 EXCEPTION = 'Dummy'

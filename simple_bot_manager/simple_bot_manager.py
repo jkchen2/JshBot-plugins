@@ -6,7 +6,7 @@ import random
 
 from jshbot import servers
 
-from jshbot.exceptions import ErrorTypes, BotException
+from jshbot.exceptions import BotException
 
 __version__ = '0.1.0'
 EXCEPTION = 'Simple bot manager'
@@ -49,10 +49,10 @@ def get_random_line(bot, name):
             with open(file_path, 'r') as data_file:
                 return str(random.choice(list(data_file))).rstrip()
         else:
-            raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION,
+            raise BotException(EXCEPTION,
                     "The {} file is empty.".format(name))
     except:
-        raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION,
+        raise BotException(EXCEPTION,
                 "The {} file was not found.".format(name))
 
 async def get_response(bot, message, parsed_command, direct):
@@ -66,13 +66,13 @@ async def get_response(bot, message, parsed_command, direct):
     response = "Bot stuff updated!"
 
     if not servers.is_owner(bot, message.author.id):
-        raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION,
+        raise BotException(EXCEPTION,
                 "You must be a bot owner for these commands.")
 
     if plan_index == 0: # Change avatar, status, or both
 
         if len(options) == 0:
-            raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION,
+            raise BotException(EXCEPTION,
                     "Either the avatar, status, or both flags must be used.")
 
         if 'avatar' in options:
@@ -81,14 +81,14 @@ async def get_response(bot, message, parsed_command, direct):
                 avatar_bytes = urllib.request.urlopen(url).read()
                 await bot.edit_profile(bot.get_token(), avatar=avatar_bytes)
             except Exception as e:
-                raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION,
+                raise BotException(EXCEPTION,
                         "Failed to update the avatar.", e=e)
         if 'status' in options:
             try:
                 status = get_random_line(bot, 'statuses.txt')
                 await bot.change_status(discord.Game(name=status))
             except Exception as e:
-                raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION,
+                raise BotException(EXCEPTION,
                         "Failed to update the status.", e=e)
 
     elif plan_index == 1: # Change nickname
@@ -97,26 +97,24 @@ async def get_response(bot, message, parsed_command, direct):
                 await bot.change_nickname(
                         message.server.me, arguments if arguments else None)
             except Exception as e:
-                raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION,
+                raise BotException(EXCEPTION,
                         "Failed to change the nickname.", e=e)
         else:
             response = "Cannot change nickname in a direct message."
     elif plan_index == 2: # Change name
         if len(arguments) > 20:
-            raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION,
-                    "Name is longer than 20 characters.")
+            raise BotException(EXCEPTION, "Name is longer than 20 characters.")
         try:
             await bot.edit_profile(bot.get_token(), username=arguments)
         except Exception as e:
-            raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION,
+            raise BotException(EXCEPTION,
                     "Failed to update the name.", e=e)
     elif plan_index == 3: # Change status
         try:
             await bot.change_status(
                     discord.Game(name=arguments) if arguments else None)
         except Exception as e:
-            raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION,
-                    "Failed to update the status.", e=e)
+            raise BotException(EXCEPTION, "Failed to update the status.", e=e)
     elif plan_index == 4: # Change avatar
         try:
             if arguments:
@@ -125,8 +123,7 @@ async def get_response(bot, message, parsed_command, direct):
                 avatar_bytes = None
             await bot.edit_profile(bot.get_token(), avatar=avatar_bytes)
         except Exception as e:
-            raise BotException(ErrorTypes.RECOVERABLE, EXCEPTION,
-                    "Failed to update the avatar.", e=e)
+            raise BotException(EXCEPTION, "Failed to update the avatar.", e=e)
 
     return (response, tts, message_type, extra)
 
