@@ -1,10 +1,8 @@
-import discord
 import asyncio
 import requests
 import time
 import random
 import math
-import aiohttp
 import functools
 
 # Debugging
@@ -16,9 +14,10 @@ from riotwatcher import LoLException, error_429, error_404
 from jshbot import data
 from jshbot.exceptions import ErrorTypes, BotException
 
-__version__ = '0.1.4'
+__version__ = '0.1.5'
 EXCEPTION = 'Riot API plugin'
 uses_configuration = True
+
 
 def get_commands():
     """Sets up new commands and shortcuts in the proper syntax."""
@@ -34,10 +33,10 @@ def get_commands():
         'challenge ::::',
         'chests ^',
         'setregion &',
-        'region'],[
+        'region'], [
         ('summoner', 'user', 's', 'i', 'info'),
-        ('extra', 'x', 'e', 'verbose', 'detail', 'detailed', 'more'),
-        ('basic', 'b', 'simple', 'concise'),
+        ('extra', 'e', 'detailed'),
+        ('basic', 'b', 'simple'),
         ('champion', 'c'),
         ('chests', 'chest', 'box', 'boxes')])
 
@@ -52,10 +51,10 @@ def get_commands():
             ('-setregion <region>', 'Sets the default region to the specified '
                 'one. The region codes are NA (default), BR, EUNE, EUW, JP, '
                 'KR, LAN, LAS, OCE, RU, and TR.'),
-            ('-summoner <summoner> (-extra)', 'Gets the information of the '
+            ('-summoner (-extra) <summoner>', 'Gets the information of the '
                 'given summoner. Extra information provides a more verbose '
                 'result.'),
-            ('-match <summoner> (-basic)', 'Gets the current or most '
+            ('-match (-basic) <summoner>', 'Gets the current or most '
                 'recent ranked match data.'),
             ('-mastery <summoner> (-champion <champion>)', 'Gets the mastery '
                 'data of the given summoner.'),
@@ -74,11 +73,13 @@ def get_commands():
 
     return (commands, shortcuts, manual)
 
+
 def api_cooldown():
     """Raises the cooldown exception if the API is being used too often."""
     raise BotException(
         EXCEPTION,
         "API is being used too often right now. Please try again later.")
+
 
 # TODO: Convert this into a decorator
 def future(function, *args, **kwargs):
@@ -87,13 +88,13 @@ def future(function, *args, **kwargs):
     function = functools.partial(function, *args, **kwargs)
     return loop.run_in_executor(None, function)
 
+
 async def get_summoner_wrapper(static, name, region, summoner_id=None):
     """Gets the summoner information. Returns None if not found."""
     watcher = static[0]
     regions = static[4]
-
     try:
-        if ':' in name: # Custom region
+        if ':' in name:  # Custom region
             name, region = name.split(':', 1)
             region = region.lower()
             if region not in regions.values():
@@ -117,15 +118,17 @@ async def get_summoner_wrapper(static, name, region, summoner_id=None):
         if e == error_429:
             api_cooldown()
         elif e == error_404:
-            if summoner_id is None and name.isdigit(): # Possibly given an ID
+            if summoner_id is None and name.isdigit():  # Possibly given an ID
                 return await get_summoner_wrapper(
                     static, name, region, summoner_id=name)
             else:
                 raise BotException(
-                    EXCEPTION, "Summoner {} not found.".format(name))
+                    EXCEPTION, "Summoner {0} not found in region {1}.".format(
+                        name, region.upper()))
         else:
             raise BotException(
                 EXCEPTION, "Failed to get summoner information.", e=e)
+
 
 async def get_league_wrapper(watcher, summoner_ids, region):
     """Gets the league. Returns an empty dictionary if not found."""
@@ -142,12 +145,15 @@ async def get_league_wrapper(watcher, summoner_ids, region):
             raise BotException(
                 EXCEPTION, "Failed to get summoner league.", e=e)
 
+
 async def get_match_list_wrapper(watcher, summoner_id, region):
     """Gets the match list. Returns None if no matches are found."""
-    try: # TODO: Convert to recent game instead, but the API is so different
-
+    try:  # TODO: Convert to recent game instead, but the API is so different
         match_list = await future(
             watcher.get_match_list, summoner_id, region=region)
+        if 'matches' not in match_list:
+            logging.warn("Summoner has no matches.")
+            return []
         return match_list['matches']
     except Exception as e:
         if e == error_429:
@@ -158,11 +164,12 @@ async def get_match_list_wrapper(watcher, summoner_id, region):
         else:
             raise BotException(EXCEPTION, "Failed to get the match list.", e=e)
 
+
 def get_recent_match(match_list, no_team=False):
     """Gets the most recent match from the match list."""
     if not match_list:
         return None
-    elif not no_team: # Just get first match
+    elif not no_team:  # Just get first match
         return match_list[0]['matchId']
     else:
         for match in match_list:
@@ -170,7 +177,8 @@ def get_recent_match(match_list, no_team=False):
                 continue
             else:
                 return match['matchId']
-        return None # No suitable match was found
+        return None  # No suitable match was found
+
 
 async def get_match_wrapper(watcher, match_id, region):
     """Gets the match given match_id. Includes exception handling."""
@@ -184,6 +192,7 @@ async def get_match_wrapper(watcher, match_id, region):
         else:
             raise BotException(
                 EXCEPTION, "Failed to get match information.", e=e)
+
 
 async def get_current_match_wrapper(static, summoner_id, region):
     """Returns the current match if there is one, otherwise returns None."""
@@ -202,6 +211,7 @@ async def get_current_match_wrapper(static, summoner_id, region):
             raise BotException(
                 EXCEPTION, "Failed to get the current match.", e=e)
 
+
 async def get_mastery_wrapper(
         bot, static, summoner_id, region, top=True, champion_id=None):
     """Gets the player's champion mastery, otherwise returns None.
@@ -214,13 +224,13 @@ async def get_mastery_wrapper(
     api_key = bot.configurations['discrank.py']['token']
     if champion_id:
         champion = '/{}'.format(champion_id)
-        top=False
+        top = False
     else:
         champion = 's'
     get_top = 'top' if top else ''
     url = ('https://{0}.api.pvp.net/championmastery/location/{1}/player/{2}/'
-        '{3}champion{4}?api_key={5}').format(region, platform, summoner_id,
-            get_top, champion, api_key)
+           '{3}champion{4}?api_key={5}').format(
+               region, platform, summoner_id, get_top, champion, api_key)
 
     response = await future(requests.get, url)
     try:
@@ -238,6 +248,7 @@ async def get_mastery_wrapper(
     else:
         return result
 
+
 def get_top_champions(static, mastery):
     """Gets the top 3 champions based on mastery."""
     if not mastery:
@@ -248,18 +259,21 @@ def get_top_champions(static, mastery):
         champions += static[1][champion_id]['name'] + ', '
     return champions[:-2] if champions else None
 
+
 def get_mastery_details(static, mastery):
     """Returns a string of details for the given mastery."""
     champion_id = str(mastery['championId'])
     champion_name = static[1][champion_id]['name']
     return ('{0}:\n'
-        '\tPoints: {1[championPoints]}\n'
-        '\tLevel: {1[championLevel]}\n'
-        '\tHighest Grade: {1[highestGrade]}\n').format(champion_name, mastery)
+            '\tPoints: {1[championPoints]}\n'
+            '\tLevel: {1[championLevel]}\n'
+            '\tHighest Grade: {1[highestGrade]}\n').format(
+                champion_name, mastery)
+
 
 def get_participant(match, summoner_id, finished):
     """Gets the summoner from the given match."""
-    if finished: # Add summoner name and match URI to final return
+    if finished:  # Add summoner name and match URI to final return
         for participant_entry in match['participantIdentities']:
             if participant_entry['player']['summonerId'] == summoner_id:
                 index = participant_entry['participantId'] - 1
@@ -268,7 +282,7 @@ def get_participant(match, summoner_id, finished):
         participant.update(participant_entry['player'])
         return participant
 
-    else: # Just the match given should be sufficient
+    else:  # Just the match given should be sufficient
         for index, participant in enumerate(match['participants']):
             if participant['summonerId'] == summoner_id:
                 participant['participantId'] = index + 1
@@ -276,16 +290,16 @@ def get_participant(match, summoner_id, finished):
 
     raise BotException(EXCEPTION, "Summoner not found in match participants.")
 
+
 async def get_champion_kda(watcher, summoner_id, champion_id, region):
     """Gets a nicely formatted string of the summoner's champion KDA."""
     try:
         stats = await future(
             watcher.get_ranked_stats, summoner_id, region=region)
-        #stats = watcher.get_ranked_stats(summoner_id)
     except LoLException as e:
         if e == error_429:
             return 'API Limit'
-        else: # Champion data not found
+        else:  # Champion data not found
             return '0/0/0 (0)'
     for champion in stats['champions']:
         if champion['id'] == champion_id:
@@ -301,6 +315,7 @@ async def get_champion_kda(watcher, summoner_id, champion_id, region):
     return "{0:.1f}/{1:.1f}/{2:.1f} ({3:.1f})".format(
         kills, deaths, assists, value)
 
+
 def get_kill_participation(match, participant_id, side):
     """Gets a string of the kill participation of the summoner."""
     total_kills = 0
@@ -312,6 +327,7 @@ def get_kill_participation(match, participant_id, side):
                 participant_kills += stats['assists']
             total_kills += stats['kills']
     return '{0:.1f}%'.format(100*participant_kills/total_kills)
+
 
 def get_bans(static, match, team, finished=True):
     """Gets the 3 bans for the given team in the given match."""
@@ -369,7 +385,7 @@ async def get_match_table(
 
     # Very detailed table
     if verbose:
-        response = '```diff\n' # Use + and - to highlight
+        response = '```diff\n'  # Use + and - to highlight
 
         # Get winning team number
         if finished:
@@ -379,8 +395,8 @@ async def get_match_table(
                 winning_team = 100 if participant['teamId'] == 200 else 200
 
         # Add current game time
-        response += "{2}Game Time: {0}:{1}\n".format(minutes, seconds,
-                '' if finished else 'Current ')
+        response += "{2}Game Time: {0}:{1}\n".format(
+            minutes, seconds, '' if finished else 'Current ')
         # Game type
         response += 'Game Type: {}\n\n'.format(game)
 
@@ -408,11 +424,11 @@ async def get_match_table(
 
             # Loop through each participant on the team
             response += ('  Summoner         Rank | Champion     | '
-                    'KDA                   | Spell 1  | Spell 2  |\n'
-                    '------------------------|--------------|-'
-                    '----------------------|----------|----------|\n')
+                         'KDA                   | Spell 1  | Spell 2  |\n'
+                         '------------------------|--------------|-'
+                         '----------------------|----------|----------|\n')
             for index, member in enumerate(match['participants']):
-                if member['teamId'] != team: # Continue
+                if member['teamId'] != team:  # Continue
                     continue
 
                 # Get summoner name
@@ -427,8 +443,9 @@ async def get_match_table(
                 # Get summoner rank
                 if summoner_id in league_data:
                     league = league_data[summoner_id][0]
-                    rank = '({0}{1})'.format(league['tier'][0],
-                            divisions[league['entries'][0]['division']])
+                    rank = '({0}{1})'.format(
+                        league['tier'][0],
+                        divisions[league['entries'][0]['division']])
                 else:
                     rank = ''
 
@@ -438,14 +455,14 @@ async def get_match_table(
                 spell2 = static[2][str(member['spell2Id'])]['name']
 
                 # Get KDA
-                if finished: # Pull from participant data
+                if finished:  # Pull from participant data
                     stats = member['stats']
                     kills, deaths = stats['kills'], stats['deaths']
                     assists = stats['assists']
-                    value = "({0:.1f})".format(((kills + assists) /
-                            (1 if deaths == 0 else deaths)))
+                    value = "({0:.1f})".format(
+                        ((kills + assists) / (1 if deaths == 0 else deaths)))
                     kda = "{0[kills]}/{0[deaths]}/{0[assists]} {1}".format(
-                            stats, value)
+                        stats, value)
                 else:
                     kda = await get_champion_kda(
                         watcher, member['summonerId'], member['championId'],
@@ -459,8 +476,9 @@ async def get_match_table(
 
                 # Add champion name, kda, and spells
                 response += ('{0: <17}{1: >4} | {2: <13}| {3: <22}| {4: <9}| '
-                        '{5: <9}|\n').format(summoner_name, rank, champion,
-                                kda, spell1, spell2)
+                             '{5: <9}|\n').format(
+                                 summoner_name, rank, champion,
+                                 kda, spell1, spell2)
 
             response += '\n'
 
@@ -471,12 +489,15 @@ async def get_match_table(
 
         # Get KDA
         champion_id = participant['championId']
-        if finished: # Pull from participant data
+        if finished:  # Pull from participant data
             stats = participant['stats']
-            value = "({0:.1f})".format(((stats['kills'] + stats['assists']) /
-                    (1 if stats['deaths'] == 0 else stats['deaths'])))
-            kda = "{0[kills]}/{0[deaths]}/{0[assists]} {1}".format(stats, value)
-        else: # Pull from league data
+            kills = stats['kills']
+            assists = stats['assists']
+            deaths = stats['deaths'] if stats['deaths'] else 1
+            value = "({0:.1f})".format((kills + assists) / deaths)
+            kda = "{0[kills]}/{0[deaths]}/{0[assists]} {1}".format(
+                stats, value)
+        else:  # Pull from league data
             kda = await get_champion_kda(
                 watcher, summoner_id, champion_id, region)
 
@@ -497,21 +518,23 @@ async def get_match_table(
             status = 'Won' if participant['stats']['winner'] else 'Lost'
             kill_participation = get_kill_participation(
                     match, participant['participantId'], participant['teamId'])
-            response += ("**Game Type:** {0}\n"
-                    "{1} - {2} {3} - Kill Participation {4} - {5} - {6}\n"
-                    "Status: {7}").format(
-                        game, champion, kda, mastery_data, kill_participation,
-                        spell1, spell2, status)
+            response += (
+                "**Game Type:** {0}\n"
+                "{1} - {2} {3} - Kill Participation {4} - {5} - {6}\n"
+                "Status: {7}").format(
+                    game, champion, kda, mastery_data, kill_participation,
+                    spell1, spell2, status)
         else:
             side = 'Blue' if participant['teamId'] == 100 else 'Red'
             response += ("**Game Type:** {0}\n"
-                    "{1} - {2} {3} - {4} - {5}\n"
-                    "Side: {6}\n"
-                    "Time: {7}:{8}").format(
-                        game, champion, kda, mastery_data, spell1, spell2,
-                        side, minutes, seconds)
+                         "{1} - {2} {3} - {4} - {5}\n"
+                         "Side: {6}\n"
+                         "Time: {7}:{8}").format(
+                             game, champion, kda, mastery_data, spell1, spell2,
+                             side, minutes, seconds)
 
     return response
+
 
 async def get_match_table_wrapper(bot, static, name, region, verbose=False):
     """Gets the match table. Makes the calling method easier to look at."""
@@ -523,7 +546,7 @@ async def get_match_table_wrapper(bot, static, name, region, verbose=False):
     # Get last match or current match information
     match = await get_current_match_wrapper(static, summoner['id'], region)
     currently_playing = bool(match)
-    if not currently_playing: # Get most recent match
+    if not currently_playing:  # Get most recent match
         match_list = await get_match_list_wrapper(
             watcher, summoner['id'], region)
         recent_match = get_recent_match(match_list, no_team=True)
@@ -536,6 +559,7 @@ async def get_match_table_wrapper(bot, static, name, region, verbose=False):
     else:
         return "A most recent match was not found..."
 
+
 async def get_summoner_information(bot, static, name, region, verbose=False):
     """Get a nicely formatted string of summoner data."""
     watcher = static[0]
@@ -543,10 +567,10 @@ async def get_summoner_information(bot, static, name, region, verbose=False):
     mastery = await get_mastery_wrapper(
         bot, static, summoner['id'], region, top=False)
     response = ("***`{0[name]}`***\n"
-        "**Summoner ID:** {0[id]}\n"
-        "**Level:** {0[summonerLevel]}\n"
-        "**Top Champions:** {1}\n\n").format(
-            summoner, get_top_champions(static, mastery))
+                "**Summoner ID:** {0[id]}\n"
+                "**Level:** {0[summonerLevel]}\n"
+                "**Top Champions:** {1}\n\n").format(
+                    summoner, get_top_champions(static, mastery))
 
     # Get league information
     summoner_id = str(summoner['id'])
@@ -558,28 +582,30 @@ async def get_summoner_information(bot, static, name, region, verbose=False):
         if verbose:
             mastery_details = []
             for it in range(3):
-                mastery_details.append(get_mastery_details(static, mastery[it]))
+                mastery_details.append(
+                    get_mastery_details(static, mastery[it]))
             response += ("***`Champion Mastery`***\n"
-                "**First:** {0}"
-                "**Second:** {1}"
-                "**Third:** {2}\n").format(*mastery_details)
+                         "**First:** {0}"
+                         "**Second:** {1}"
+                         "**Third:** {2}\n").format(*mastery_details)
 
         # Ranked statistics
         entries = league['entries'][0]
         division = league['tier'].capitalize() + ' ' + entries['division']
         wlr = 100 * entries['wins'] / (entries['wins'] + entries['losses'])
         response += ("***`Ranked Statistics`***\n"
-            "**Rank:** {0}\n"
-            "**League Points:** {1[leaguePoints]}\n"
-            "**Wins/Losses:** {1[wins]}/{1[losses]}\n"
-            "**W/L Percent:** {2:.2f}%\n\n").format(division, entries, wlr)
+                     "**Rank:** {0}\n"
+                     "**League Points:** {1[leaguePoints]}\n"
+                     "**Wins/Losses:** {1[wins]}/{1[losses]}\n"
+                     "**W/L Percent:** {2:.2f}%\n\n").format(
+                         division, entries, wlr)
     else:
         response += "This summoner has not played ranked yet this season...\n"
 
     # Get last match or current match information
     match = await get_current_match_wrapper(static, summoner['id'], region)
     currently_playing = bool(match)
-    if not currently_playing: # Get most recent match
+    if not currently_playing:  # Get most recent match
         match_list = await get_match_list_wrapper(
             watcher, summoner['id'], region)
         recent_match = get_recent_match(match_list, no_team=True)
@@ -597,6 +623,7 @@ async def get_summoner_information(bot, static, name, region, verbose=False):
 
     return response
 
+
 def get_formatted_mastery_data(static, champion_data):
     """Gets a nicely formatted line of mastery data."""
     champion_name = static[1][str(champion_data['championId'])]['name']
@@ -604,7 +631,7 @@ def get_formatted_mastery_data(static, champion_data):
     if 'lastPlayTime' in champion_data:
         last_played = time.time() - champion_data['lastPlayTime']/1000
         last_played = '{0:.1f} d'.format(last_played/86400)
-    else: # No data
+    else:  # No data
         last_played = 'Unknown'
     if 'highestGrade' in champion_data:
         highest_grade = champion_data['highestGrade']
@@ -614,6 +641,7 @@ def get_formatted_mastery_data(static, champion_data):
             '{2: <4}| {3: <6}| {4}\n').format(
                 champion_name, champion_data, chest,
                 highest_grade, last_played)
+
 
 async def get_mastery_table(bot, static, name, region, champion=None):
     """Gets mastery information for the given summoner.
@@ -651,6 +679,7 @@ async def get_mastery_table(bot, static, name, region, champion=None):
             response += '{0: <3}| {1}'.format(it + 1, data)
     return response + '```'
 
+
 async def get_ranked_stats_wrapper(watcher, summoner_id, region):
     """Gets ranked stats. Return None if not found."""
     try:
@@ -665,6 +694,7 @@ async def get_ranked_stats_wrapper(watcher, summoner_id, region):
             return None
         else:
             raise BotException(EXCEPTION, "Failed to get ranked stats.", e=e)
+
 
 async def get_challenge_result(bot, static, arguments, region):
     """Gets a result of the challenge minigame.
@@ -686,7 +716,7 @@ async def get_challenge_result(bot, static, arguments, region):
         summoners[it], summoner_region = await get_summoner_wrapper(
             static, summoners[it], region)
         names[it] = summoners[it]['name']
-        try: # In case the champion isn't valid
+        try:  # In case the champion isn't valid
             champions[it] = static[1][champions[it].replace(' ', '').lower()]
             champions[it] = champions[it]['id']
         except KeyError:
@@ -709,7 +739,7 @@ async def get_challenge_result(bot, static, arguments, region):
             bot, static, ids[it], summoner_region, champion_id=champions[it])
         if data:
             champions[it] = (data['championPoints'], data['championLevel'])
-        else: # No mastery data on this champion
+        else:  # No mastery data on this champion
             champions[it] = (math.e, 1)
 
     # Do the calculation
@@ -718,14 +748,14 @@ async def get_challenge_result(bot, static, arguments, region):
         # Do calculation stuff
         scores = [0, 0]
         for it in range(2):
-            scores[it] = (champions[it][1]
-                          * math.log1p(games[it])
-                          * math.log1p(champions[it][0]))
+            scores[it] = (champions[it][1] *
+                          math.log1p(games[it]) *
+                          math.log1p(champions[it][0]))
         total = scores[0] + scores[1]
         response = ("Chance of {0} winning: {1:.2f}%\n"
-            "Chance of {2} winning: {3:.2f}%\n").format(
-                names[0], 100 * scores[0] / total,
-                names[1], 100 * scores[1] / total)
+                    "Chance of {2} winning: {3:.2f}%\n").format(
+                        names[0], 100 * scores[0] / total,
+                        names[1], 100 * scores[1] / total)
 
         # Calculate winner
         random_value = random.random() * total
@@ -738,19 +768,19 @@ async def get_challenge_result(bot, static, arguments, region):
     else:
         return "Something bad happened. Please report!"
 
+
 async def get_chests(bot, static, name, region):
     """Gets a list of champions for which a chest has not yet been obtained."""
     # Get mastery data
-    watcher =static[0]
     summoner, region = await get_summoner_wrapper(static, name, region)
     mastery = await get_mastery_wrapper(
         bot, static, summoner['id'], region, top=False)
     response = ("Here is a list of champions that {} has not received a chest "
-        "for:\n").format(summoner['name'])
+                "for:\n").format(summoner['name'])
     champions = []
-    for data in mastery: # Look for chests that can be obtained
-        if not data['chestGranted']:
-            champion_name = static[1][str(data['championId'])]['name']
+    for entry in mastery:  # Look for chests that can be obtained
+        if not entry['chestGranted']:
+            champion_name = static[1][str(entry['championId'])]['name']
             champions.append(champion_name)
     champions.sort()
 
@@ -759,7 +789,7 @@ async def get_chests(bot, static, name, region):
 
     # Format the result
     for it in range(len(champions) % 6):
-        champions.append('') # Fill out the rest with empty strings
+        champions.append('')  # Fill out the rest with empty strings
     total_length = len(champions)
 
     response += '```\n'
@@ -771,6 +801,29 @@ async def get_chests(bot, static, name, region):
 
     return response
 
+
+def set_region(bot, static, server_id, region):
+    """Sets the server's default region."""
+    regions = static[4]
+    region = region.lower().replace(' ', '').replace('_', '').replace('-', '')
+    response = ''
+    if not region:
+        region = 'na'
+        response = "Reset region to NA (default)."
+    elif region not in regions.values():
+        if region not in regions:
+            raise BotException(
+                EXCEPTION, "That is not a defined region. See "
+                "{}help blitz 2".format(bot.command_invokers[0]))
+        else:
+            region = regions[region]
+    if not response:
+        response = "Region set!"
+    data.add(
+        bot, __name__, 'region', region, server_id=server_id)
+    return response
+
+
 async def get_response(bot, message, parsed_command, direct):
     response = ''
     tts = False
@@ -780,75 +833,62 @@ async def get_response(bot, message, parsed_command, direct):
 
     if base == 'blitz':
 
-        region = data.get(
-            bot, __name__, 'region', server_id=message.server.id, default='na')
+        if direct:
+            region = 'na'
+        else:
+            region = data.get(
+                bot, __name__, 'region',
+                server_id=message.server.id, default='na')
         static = data.get(
             bot, __name__, 'static_data', volatile=True)
 
-        if plan_index == 0: # Get basic summoner information
+        if plan_index == 0:  # Get basic summoner information
             response = await get_summoner_information(
                 bot, static, arguments, region, verbose=('extra' in options))
 
-        elif plan_index == 1: # Get match information
+        elif plan_index == 1:  # Get match information
             response = await get_match_table_wrapper(
                 bot, static, arguments, region,
-                verbose=(not 'basic' in options))
+                verbose=('basic' not in options))
 
-        elif plan_index == 2: # Get mastery table
+        elif plan_index == 2:  # Get mastery table
             champion = options['champion'] if 'champion' in options else None
             response = await get_mastery_table(
                 bot, static, arguments, region, champion=champion)
 
-        elif plan_index == 3: # Challenge
+        elif plan_index == 3:  # Challenge
             response = await get_challenge_result(
                 bot, static, arguments, region)
 
-        elif plan_index == 4: # Chests
+        elif plan_index == 4:  # Chests
             response = await get_chests(bot, static, arguments, region)
 
-        elif plan_index == 5: # Set region
-            regions = static[4]
-            region = arguments.lower().replace(' ', '').replace('_', '')
-            if not region:
-                region = 'na'
-                response = "Reset region to NA (default)."
-            elif region not in regions.values():
-                if region not in regions:
-                    raise BotException(
-                        EXCEPTION, "That is not a defined region. See {}help "
-                        "blitz 2".format(bot.command_invokers[0]))
-                else:
-                    region = regions[region]
-            if not response:
-                response = "Region set!"
-            data.add(
-                bot, __name__, 'region', region, server_id=message.server.id)
+        elif plan_index == 5:  # Set region
+            if direct:
+                response = "Can't set region in a direct message, sorry."
+            else:
+                response = set_region(
+                    bot, static, message.server.id, arguments)
 
-        elif plan_index == 6: # Get region
-            region = data.get(
-                bot, __name__, 'region',
-                server_id=message.server.id, default='na')
+        elif plan_index == 6:  # Get region
             response = "The current region is {}.".format(region.upper())
 
     return (response, tts, message_type, extra)
+
 
 def get_static_data(watcher):
     """Get static data returned as a tuple."""
     try:
         champions = watcher.static_get_champion_list(data_by_id=True)['data']
         champions_named = watcher.static_get_champion_list()['data']
-        spells = watcher.static_get_summoner_spell_list(data_by_id=True)['data']
+        spells = watcher.static_get_summoner_spell_list(
+            data_by_id=True)['data']
     except LoLException as e:
-        if e == error_401 or e == error_403:
-            raise BotException(
-                EXCEPTION, "Failed to retrieve static data. Your Riot API "
-                "token may be invalid or blacklisted - please check to make "
-                "sure you copied your key correctly!",
-                error_type=ErrorTypes.STARTUP)
-        else:
-            raise BotException(
-                EXCEPTION, "Failed to retrieve static data.",
-                e=e, error_type=ErrorTypes.STARTUP)
+        raise BotException(
+            EXCEPTION, "Failed to retrieve static data. Your Riot API "
+            "token may be invalid or blacklisted - please check to make "
+            "sure you copied your key correctly!", e=e,
+            error_type=ErrorTypes.STARTUP)
     champions_named = dict(
         (key.lower(), value) for key, value in champions_named.items())
     champions.update(champions_named)
@@ -858,8 +898,8 @@ async def on_ready(bot):
     # Obtain all static data required
     watcher = RiotWatcher(bot.configurations['discrank.py']['token'])
     if not watcher.can_make_request():
-        raise BotException(EXCEPTION,
-            "The given Riot API token cannot get requests.",
+        raise BotException(
+            EXCEPTION, "The given Riot API token cannot get requests.",
             error_type=ErrorTypes.STARTUP)
 
     # Get static data
@@ -948,10 +988,11 @@ async def on_ready(bot):
         'northamerica': 'na',
         'oceania': 'oce',
         'russia': 'ru',
-        'turkey': 'tr'
+        'turkey': 'tr',
+        'japan': 'jp'
     }
 
-    platforms = {
+    platforms = {  # RiotWatcher doesn't have Japan
         'br': 'br1',
         'eune': 'eun1',
         'euw': 'euw1',
@@ -961,11 +1002,11 @@ async def on_ready(bot):
         'na': 'na1',
         'oce': 'oc1',
         'ru': 'ru',
-        'tr': 'tr1'
+        'tr': 'tr1',
+        'jp': 'jp1'
     }
 
     data.add(
         bot, __name__, 'static_data',
         [watcher, champions, spells, modes, regions, platforms], volatile=True)
     print("Discrank is ready!")
-
