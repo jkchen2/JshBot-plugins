@@ -993,17 +993,17 @@ async def on_ready(bot):
     }
 
     platforms = {  # RiotWatcher doesn't have Japan
-        'br': 'br1',
-        'eune': 'eun1',
-        'euw': 'euw1',
-        'kr': 'kr',
-        'lan': 'la1',
-        'las': 'la2',
-        'na': 'na1',
-        'oce': 'oc1',
-        'ru': 'ru',
-        'tr': 'tr1',
-        'jp': 'jp1'
+        'br': 'BR1',
+        'eune': 'EUN1',
+        'euw': 'EUW1',
+        'kr': 'KR',
+        'lan': 'LA1',
+        'las': 'LA2',
+        'na': 'NA1',
+        'oce': 'OC1',
+        'ru': 'RU',
+        'tr': 'TR1',
+        'jp': 'JP1'
     }
 
     data.add(
