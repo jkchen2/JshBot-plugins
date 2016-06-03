@@ -253,11 +253,17 @@ def get_top_champions(static, mastery):
     """Gets the top 3 champions based on mastery."""
     if not mastery:
         return None
-    champions = ''
-    for x in range(3):
+    champions = []
+    if len(mastery) == 0:
+        return None
+    elif len(mastery) < 3:
+        max_range = len(mastery)
+    else:
+        max_range = 3
+    for x in range(max_range):
         champion_id = str(mastery[x]['championId'])
-        champions += static[1][champion_id]['name'] + ', '
-    return champions[:-2] if champions else None
+        champions.append(static[1][champion_id]['name'])
+    return ', '.join(champions)
 
 
 def get_mastery_details(static, mastery):
