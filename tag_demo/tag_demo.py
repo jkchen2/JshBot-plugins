@@ -1,9 +1,12 @@
 import random
 import time
 import logging
+import youtube_dl
+import os
 
 from itertools import groupby
 from operator import itemgetter
+from tinytag import TinyTag
 
 from jshbot import data, utilities
 from jshbot.exceptions import BotException
@@ -118,28 +121,28 @@ async def create_tag(
             EXCEPTION, "The tag limit has been reached ({}).".format(
                 tag_limit))
     # Create the tag
+    if 'random' not in options:
+        text = [text]
+    flag_list = list(options.keys())
+    flag_list.remove('create')
+    flag_bits = get_flag_bits(flag_list)
+    new_tag = {
+        'name': tag_name,
+        'flags': flag_bits,
+        'length': [],  # Sound length
+        'created': int(time.time()),
+        'last_used': 0,
+        'hits': 0,
+        'author': author_id,
+        'volume': 1,
+        'value': text,  # Temporary (modified for complex later)
+        'raw': text
+    }
+    if 'sound' in options:  # Check sound tags for length limit
+        return new_tag
     else:
-        if 'random' not in options:
-            text = [text]
-        if 'sound' in options:
-            url = [None] * len(text)
-        flag_list = list(options.keys())
-        flag_list.remove('create')
-        flag_bits = get_flag_bits(flag_list)
-        new_tag = {
-            'name': tag_name,
-            'flags': flag_bits,
-            'length': 0,  # Sound length
-            'created': int(time.time()),
-            'last_used': 0,
-            'hits': 0,
-            'author': author_id,
-            'volume': 1,
-            'url': url,
-            'value': text,  # Temporary (modified for complex later)
-            'raw': text
-        }
         tag_database[database_name] = new_tag
+        return tag_database[database_name]
 
 
 def remove_tag(bot, tag_database, tag_name, server, author_id):
@@ -301,25 +304,23 @@ async def retrieve_tag(
         else:
             voice_client = await utilities.join_and_ready(
                 bot, voice_channel, member.server)
-            url = tag['url'][value_index]
             value = tag['value'][value_index]
 
             # Check if the url is in the cache
-            if url:
-                file_directory = data.get_from_cache(bot, None, url=url)
-            else:
-                file_directory = None
+            file_directory = data.get_from_cache(bot, None, url=value)
             if not file_directory:  # Can't reuse URLs unfortunately
-                print("Not using cache...")
-                try:
-                    player = await voice_client.create_ytdl_player(value)
-                    download_url = player.download_url
-                except Exception as e:
-                    logging.warn("youtube_dl failed to download file.")
-                    logging.warn("Exception information: {}".format(e))
+                if 'my.mixtape.moe/' in value:
                     download_url = value
-                file_directory = await data.add_to_cache(bot, download_url)
-                tag['url'][value_index] = download_url
+                else:
+                    try:
+                        player = await voice_client.create_ytdl_player(value)
+                        download_url = player.download_url
+                    except Exception as e:
+                        logging.warn("youtube_dl failed to download file.")
+                        logging.warn("Exception information: {}".format(e))
+                        download_url = value
+                file_directory = await data.add_to_cache(
+                    bot, download_url, name=value)
 
             player = voice_client.create_ffmpeg_player(file_directory)
             player.volume = tag['volume']
@@ -356,11 +357,18 @@ async def get_response(bot, message, parsed_command, direct):
         if plan_index in (0, 1):  # create
             tag_name = options['create']
             database_name = cleaned_tag_name(tag_name)
-            await create_tag(
+            new_tag = await create_tag(
                 bot, tag_database, tag_name, database_name, message.author.id,
                 message.server.id, options, arguments, plan_index)
-            response = "Tag '{0}' created. (Stored as '{1}')".format(
-                tag_name, database_name)
+            if 'sound' in options:
+                response = "Checking the length of the audio..."
+                message_type = 3
+                extra = (
+                    'sound_check', new_tag, tag_database,
+                    tag_name, database_name)
+            else:
+                response = "Tag '{0}' created. (Stored as '{1}')".format(
+                    tag_name, database_name)
 
         elif plan_index == 2:  # remove tag
             remove_tag(
@@ -399,6 +407,48 @@ async def get_response(bot, message, parsed_command, direct):
                 bot, tag_database, arguments, message.author, options)
 
     return (response, tts, message_type, extra)
+
+
+async def handle_active_message(bot, message_reference, extra):
+    if extra[0] == 'sound_check':
+        urls = extra[1]['value']
+        options = {'format': 'worstaudio/worst'}
+        downloader = youtube_dl.YoutubeDL(options)
+        length_limit = bot.configurations[__name__]['max_sound_tag_length']
+        lengths = []
+        over_limit = []
+
+        for url in urls:
+            try:
+                info = await utilities.future(
+                    downloader.extract_info, url, download=False)
+                if 'duration' in info:
+                    duration = int(info['duration'])
+                else:
+                    chosen_format = info['formats'][0]
+                    extension = chosen_format['ext']
+                    download_url = chosen_format['url']
+                    file_location = await utilities.download_url(
+                        bot, download_url, extension=extension)
+                    duration = int(TinyTag.get(file_location).duration)
+                    os.remove(file_location)
+            except Exception as e:
+                raise BotException(
+                    EXCEPTION, "Failed to get duration from a URL.", url, e=e)
+            lengths.append(duration)
+            if duration > length_limit:
+                over_limit.append(url)
+
+        if over_limit:
+            raise BotException(
+                EXCEPTION, "The following URL(s) have audio over the "
+                "length limit of {0} seconds.".format(length_limit),
+                '\n'.join(over_limit))
+        extra[1]['length'] = lengths
+        extra[2][extra[4]] = extra[1]  # Assign to database
+        response = "Tag '{0}' created. (Stored as '{1}')".format(
+            extra[3], extra[4])
+        await bot.edit_message(message_reference, response)
 
 
 def get_flags(flag_bits, simple=False):

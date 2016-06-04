@@ -6,9 +6,11 @@ import asyncio
 import random
 import time
 import logging
+import youtube_dl
 
 import datetime
 
+from tinytag import TinyTag
 from jshbot import data, utilities
 from jshbot.exceptions import BotException
 
@@ -28,6 +30,9 @@ def get_commands():
     commands['play'] = (['?file ^'], [()])
     commands['volume'] = (['&'], [()])
     commands['stfu'] = ([''], [()])
+    commands['ytdl'] = (['^'], [()])
+    commands['rip'] = (['^'], [()])
+    commands['duration'] = (['^'], [()])
 
     return (commands, shortcuts, manual)
 
@@ -49,6 +54,33 @@ async def get_response(bot, message, parsed_command, direct):
             long_future = bot.loop.run_in_executor(None, long_function)
             await long_future
             response = "Finished sleeping"
+
+    elif base == 'rip':
+        response = get_rip(arguments)
+
+    elif base == 'ytdl':
+        downloader = youtube_dl.YoutubeDL({})
+        info = await utilities.future(
+            downloader.extract_info, arguments, download=False)
+        bot.extra = info
+        response = str(info)
+
+    elif base == 'duration':
+        options = {'format': 'worstaudio/worst'}
+        downloader = youtube_dl.YoutubeDL(options)
+        info = await utilities.future(
+            downloader.extract_info, arguments, download=False)
+        bot.extra = info
+        if 'duration' in info:
+            response = info['duration']
+        else:
+            chosen_format = info['formats'][0]
+            extension = chosen_format['ext']
+            download_url = chosen_format['url']
+            file_location = await utilities.download_url(
+                bot, download_url, extension=extension)
+            info = TinyTag.get(file_location)
+            response = info.duration
 
     elif base == 'timemasheen':  # carter's time masheen
         for delimiter in ('/', '.', '-'):
@@ -96,6 +128,18 @@ async def get_response(bot, message, parsed_command, direct):
             player.volume = volume
 
     return (response, tts, message_type, extra)
+
+
+def get_rip(name):
+    rip_messages = [
+        'rip {}',
+        'you will be missed, {}',
+        'rip in pizza, {}',
+        'press f to pay respects to {}',
+        '{} will be in our hearts',
+        '{} didn\'t stand a chance'
+    ]
+    return random.choice(rip_messages).format(name)
 
 
 def long_function():
