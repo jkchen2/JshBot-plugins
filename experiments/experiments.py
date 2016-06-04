@@ -9,7 +9,7 @@ import logging
 
 import datetime
 
-from jshbot import data
+from jshbot import data, utilities
 from jshbot.exceptions import BotException
 
 __version__ = '¯\_(ツ)_/¯'
@@ -42,6 +42,8 @@ async def get_response(bot, message, parsed_command, direct):
         if arguments:  # that's pretty aesthetic mate
             text = arguments.replace(' ', '').lower()
             response = ' '.join([char for char in text])
+            await bot.notify_owners(
+                "Somebody made {} aesthetic.".format(arguments))
 
         else:  # asyncio testing
             long_future = bot.loop.run_in_executor(None, long_function)
@@ -80,8 +82,6 @@ async def get_response(bot, message, parsed_command, direct):
         player = data.get(
             bot, __name__, 'voice_client',
             server_id=message.server.id, volatile=True)
-        if player is None or not player.is_playing():
-            raise BotException(EXCEPTION, "No audio is playing.")
         if arguments:
             volume = float(arguments)
             if volume < 0 or volume > 2:
@@ -91,7 +91,9 @@ async def get_response(bot, message, parsed_command, direct):
         else:
             volume = 1.0
             response = "Volume set to 100%"
-        player.volume = volume
+        data.add(bot, __name__, 'volume', volume, server_id=message.server.id)
+        if player:
+            player.volume = volume
 
     return (response, tts, message_type, extra)
 
@@ -101,22 +103,18 @@ def long_function():
 
 
 async def play_this(bot, server, voice_channel, location, use_file):
-    if not bot.is_voice_connected(server):
-        voice_connection = await bot.join_voice_channel(voice_channel)
-    else:
-        voice_connection = bot.voice_client_in(server)
-    player = data.get(
-        bot, __name__, 'voice_client', server_id=server.id, volatile=True)
-    if player is not None and player.is_playing():
-        player.stop()
+    voice_client = await utilities.join_and_ready(bot, voice_channel, server)
     try:
         if use_file:
-            player = voice_connection.create_ffmpeg_player(
+            player = voice_client.create_ffmpeg_player(
                 '{0}/audio/{1}'.format(bot.path, location))
         else:
-            player = await voice_connection.create_ytdl_player(location)
+            player = await voice_client.create_ytdl_player(location)
     except Exception as e:
         raise BotException(EXCEPTION, "Something bad happened.", e=e)
+    volume = data.get(
+        bot, __name__, 'volume', server_id=server.id, default=1.0)
+    player.volume = volume
     player.start()
     data.add(
         bot, __name__, 'voice_client', player,
