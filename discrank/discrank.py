@@ -1,9 +1,7 @@
-import asyncio
 import requests
 import time
 import random
 import math
-import functools
 
 # Debugging
 import logging
@@ -13,6 +11,7 @@ from riotwatcher import LoLException, error_429, error_404
 
 from jshbot import data
 from jshbot.exceptions import ErrorTypes, BotException
+from jshbot.utilities import future
 
 __version__ = '0.1.5'
 EXCEPTION = 'Riot API plugin'
@@ -79,14 +78,6 @@ def api_cooldown():
     raise BotException(
         EXCEPTION,
         "API is being used too often right now. Please try again later.")
-
-
-# TODO: Convert this into a decorator
-def future(function, *args, **kwargs):
-    """Returns the given function as a future."""
-    loop = asyncio.get_event_loop()
-    function = functools.partial(function, *args, **kwargs)
-    return loop.run_in_executor(None, function)
 
 
 async def get_summoner_wrapper(static, name, region, summoner_id=None):
