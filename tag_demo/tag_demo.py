@@ -1,11 +1,11 @@
 import random
 import time
 import logging
-import youtube_dl
 import os
 
 from itertools import groupby
 from operator import itemgetter
+from youtube_dl import YoutubeDL
 from tinytag import TinyTag
 
 from jshbot import data, utilities
@@ -94,9 +94,10 @@ def get_commands():
 async def create_tag(
         bot, tag_database, tag_name, database_name,
         author_id, server_id, options, text, is_random):
-    """
-    Creates a tag based on the given parameters. If it is a tag with sound,
-    it will check that the sound length is no longer than the limit.
+    """Creates a tag based on the given parameters.
+
+    If it is a tag with sound, it will check that the sound length is no
+    longer than the limit.
     """
     length_limit = bot.configurations[__name__]['max_tag_name_length']
     default_max_tags = bot.configurations[__name__]['max_tags_per_server']
@@ -120,23 +121,27 @@ async def create_tag(
         raise BotException(
             EXCEPTION, "The tag limit has been reached ({}).".format(
                 tag_limit))
+
     # Create the tag
     if 'random' not in options:
         text = [text]
+    elif len(text) > 100:
+        raise BotException(
+            EXCEPTION, "Random tags can have no more than 100 entries.")
+    length = list(map(len, text))
     flag_list = list(options.keys())
     flag_list.remove('create')
     flag_bits = get_flag_bits(flag_list)
     new_tag = {
         'name': tag_name,
         'flags': flag_bits,
-        'length': [],  # Sound length
+        'length': length,  # Sound or text length
         'created': int(time.time()),
         'last_used': 0,
         'hits': 0,
         'author': author_id,
         'volume': 1,
-        'value': text,  # Temporary (modified for complex later)
-        'raw': text
+        'value': text
     }
     if 'sound' in options:  # Check sound tags for length limit
         return new_tag
@@ -174,11 +179,12 @@ def get_tag_info(bot, tag_database, tag_name, server):
     last = tag['last_used']
     used_time = time.ctime(last) if last else 'Never'
     properties = get_flags(tag['flags'])
+    volume = tag['volume'] * 100
+    volume_text = '{}%'.format(volume) if 'Sound' in properties else 'n/a'
+    length_type = 'second' if 'Sound' in properties else 'character'
     properties = ', '.join(properties) if properties else 'None'
-    if tag['length']:  # Single or list
-        tag_length = '{} second(s)'.format(tag['length'])
-    else:
-        tag_length = 'n/a'
+    lengths = list(map(str, tag['length']))
+    tag_length = '{0} {1}(s)'.format(', '.join(lengths), length_type)
     if author is None:
         author = "unknown"
     else:
@@ -187,12 +193,97 @@ def get_tag_info(bot, tag_database, tag_name, server):
             "Full name: {1[name]}\n"
             "Author: {2}\n"
             "Properties: {3}\n"
-            "Length: {4}\n"
-            "Created: {5}\n"
-            "Last used: {6}\n"
+            "Volume: {4}\n"
+            "Length: {5}\n"
+            "Created: {6}\n"
+            "Last used: {7}\n"
             "Hits: {1[hits]}").format(
-                tag_name, tag, author, properties,
+                tag_name, tag, author, properties, volume_text,
                 tag_length, created_time, used_time)
+
+
+async def edit_tag(bot, tag_database, options, new_text, server, user_id):
+    """Edits the tag from options with the given options."""
+    tag, tag_name = get_tag(
+        tag_database, options['edit'], include_name=True,
+        permissions=(bot, server, user_id))
+    tag_flags = get_flags(tag['flags'], simple=True)
+    additions = []
+
+    if 'nsfw' in options:
+        if 'nsfw' in tag_flags:
+            tag_flags.remove('nsfw')
+            additions.append("Tag is no longer marked as NSFW")
+        else:
+            tag_flags.append('nsfw')
+            additions.append("Tag is now marked as NSFW")
+
+    if 'volume' in options:
+        if 'sound' not in tag_flags:
+            raise BotException(
+                EXCEPTION, "Cannot change the volume of a text only tag.")
+        try:
+            new_volume = float(options['volume'])
+        except ValueError:
+            raise BotException(EXCEPTION, "Volume isn't a valid number.")
+        if not (0.1 <= new_volume <= 2.0):
+            raise BotException(EXCEPTION, "New volume must be in [0.1-2.0].")
+        tag['volume'] = new_volume
+        additions.append("Volume changed to {:.2f}%.".format(
+            new_volume * 100))
+
+    if 'add' in options or 'remove' in options:
+        if new_text:
+            raise BotException(
+                EXCEPTION,
+                "Cannot set tag value while also adding/removing entries.")
+        if 'add' in options:
+            length = len(tag['value'])
+            if length >= 100:
+                raise BotException(
+                    EXCEPTION,
+                    "Random tags can have no more than 100 entries.")
+            if 'sound' in tag_flags:  # Check audio length
+                length = await get_checked_durations(bot, [options['add']])
+                length = length[0]
+            else:
+                length = len(options['add'])
+            tag['length'].append(length)
+            tag['value'].append(options['add'])
+        if 'remove' in options:
+            if options['remove'] not in tag['value']:
+                raise BotException(
+                    EXCEPTION, "Entry '{}' not found in the tag.".format(
+                        options['remove']))
+            else:
+                value_index = tag['value'].index(options['remove'])
+                tag['length'].pop(value_index)
+                tag['value'].pop(value_index)
+
+        length = len(tag['value'])
+        if length == 0:
+            del tag_database[tag_name]
+            additions = ["Tag removed (last entry removed)."]
+        elif len(tag['value']) > 1 and 'random' not in tag_flags:
+            tag_flags.append('random')
+            additions.append("Added an entry. Tag is now random.")
+        elif len(tag['value']) == 1 and 'random' in tag_flags:
+            tag_flags.remove('random')
+            additions.append("Removed an entry. Tag is no longer random.")
+        elif 'add' in options:
+            additions.append("Added an entry.")
+        elif 'remove' in options:
+            additions.append("Removed an entry.")
+
+    if new_text:
+        if 'random' in tag_flags:
+            raise BotException(EXCEPTION, "Cannot set text for a random tag.")
+        tag['value'] = [new_text]
+    elif len(options) == 1:
+        raise BotException(EXCEPTION, "Nothing was changed!")
+
+    tag['flags'] = get_flag_bits(tag_flags)  # Last. Avoids exceptions
+    return '\n'.join(additions)
 
 
 def list_search_tags(bot, message, plan_index, arguments, direct):
@@ -201,7 +292,6 @@ def list_search_tags(bot, message, plan_index, arguments, direct):
     If the message is sent directly, it lists all of the tags that the user
     can see. Arguments may define the list or search arguments.
     """
-
     if message.channel.is_private:
         servers = [server for server in bot.servers if (
             message.author in server.members)]
@@ -272,8 +362,46 @@ def list_search_tags(bot, message, plan_index, arguments, direct):
 
     return response
 
+
+def toggle_channel_filters(bot, server, user_id, channel_name, flag):
+    """Toggles the given channel's filter via the flag. Moderators only."""
+    if not data.is_mod(bot, server, user_id):
+        raise BotException(
+            EXCEPTION, "Only moderators can change channel tag filters.")
+    flag = flag.lower()
+    valid_types = ('all', 'nsfw')
+    if flag not in valid_types:
+        raise BotException(
+            EXCEPTION, "Invalid type. Type must be one of: {}.".format(
+                ', '.join(valid_types)))
+    channel = data.get_channel(bot, channel_name, server)
+    channel_filter = data.get(
+        bot, __name__, 'filter', server_id=server.id,
+        channel_id=channel.id, default=[], create=True)
+
+    arguments = [bot, __name__, 'filter']
+    keyword_arguments = {'server_id': server.id, 'channel_id': channel.id}
+    if flag in channel_filter:
+        action = data.list_data_remove
+        keyword_arguments['value'] = flag
+    else:
+        action = data.list_data_append
+        arguments.append(flag)
+    action(*arguments, **keyword_arguments)
+
+    voice_text = 'voice ' if channel.type == 'voice' else ''
+    channel_text = "for {0}channel {1}".format(voice_text, channel.name)
+    if 'all' in channel_filter:
+        return "All tags are now disabled {}.".format(channel_text)
+    elif channel_filter:
+        return "Disallowed tags {0}: {1}".format(
+            channel_text, ', '.join(channel_filter))
+    else:
+        return "All tags are now allowed {}.".format(channel_text)
+
+
 async def retrieve_tag(
-        bot, tag_database, tag_name, member, options):
+        bot, tag_database, tag_name, options, member, channel_id):
     """Retrieves the given tag.
 
     If either 'sound' or 'text' is found in options, display that only.
@@ -282,15 +410,19 @@ async def retrieve_tag(
     tag = get_tag(tag_database, tag_name)
     flags = get_flags(tag['flags'], simple=True)
 
-    # if tag_author == author_id or author_id is mod
-    # if tag_author != author_id and author_id is not
-    if ('private' in flags and member.id != tag['author'] and not
-            data.is_mod(bot, member.server, member.id)):
-        raise BotException(EXCEPTION, "This tag is private.")
-    # TODO: Add mute checking and nsfw checking
-    # mute_settings = data.get(bot, __name__, None, server_id=server.id,
-    #    channel_id=channel_id)
-    # elif tag['sound'] and data.get(bot, __name__, 'muted'
+    is_mod = data.is_mod(bot, member.server, member.id)
+    if not is_mod:
+        channel_filter = data.get(
+            bot, __name__, 'filter', server_id=member.server.id,
+            channel_id=channel_id, default=[])
+        if 'all' in channel_filter:
+            raise BotException(
+                EXCEPTION, "Tags are disabled in this channel.")
+        elif 'nsfw' in flags and 'nsfw' in channel_filter:
+            raise BotException(
+                EXCEPTION, "NSFW tags are disabled in this channel.")
+        elif 'private' in flags and member.id != tag['author']:
+            raise BotException(EXCEPTION, "This tag is private.")
 
     tag_is_random = 'random' in flags
     if tag_is_random:
@@ -301,31 +433,41 @@ async def retrieve_tag(
         voice_channel = member.voice_channel
         if not voice_channel:  # Check channel mute filters
             raise BotException(EXCEPTION, "You are not in a voice channel.")
-        else:
-            voice_client = await utilities.join_and_ready(
-                bot, voice_channel, member.server)
-            value = tag['value'][value_index]
+        voice_filter = data.get(
+            bot, __name__, 'filter', server_id=member.server.id,
+            channel_id=voice_channel.id, default=[])
+        if 'all' in voice_filter:
+            raise BotException(
+                EXCEPTION, "Sound tags are disabled in this voice channel.")
+        elif 'nsfw' in flags and 'nsfw' in voice_filter:
+            raise BotException(
+                EXCEPTION,
+                "NSFW sound tags are disabled in this voice channel.")
 
-            # Check if the url is in the cache
-            file_directory = data.get_from_cache(bot, None, url=value)
-            if not file_directory:  # Can't reuse URLs unfortunately
-                if 'my.mixtape.moe/' in value:
+        voice_client = await utilities.join_and_ready(
+            bot, voice_channel, member.server)
+        value = tag['value'][value_index]
+
+        # Check if the url is in the cache
+        file_directory = data.get_from_cache(bot, None, url=value)
+        if not file_directory:  # Can't reuse URLs unfortunately
+            if 'my.mixtape.moe/' in value:
+                download_url = value
+            else:
+                try:
+                    player = await voice_client.create_ytdl_player(value)
+                    download_url = player.download_url
+                except Exception as e:
+                    logging.warn("youtube_dl failed to download file.")
+                    logging.warn("Exception information: {}".format(e))
                     download_url = value
-                else:
-                    try:
-                        player = await voice_client.create_ytdl_player(value)
-                        download_url = player.download_url
-                    except Exception as e:
-                        logging.warn("youtube_dl failed to download file.")
-                        logging.warn("Exception information: {}".format(e))
-                        download_url = value
-                file_directory = await data.add_to_cache(
-                    bot, download_url, name=value)
+            file_directory = await data.add_to_cache(
+                bot, download_url, name=value)
 
-            player = voice_client.create_ffmpeg_player(file_directory)
-            player.volume = tag['volume']
-            player.start()
-            utilities.set_player(bot, member.server.id, player)
+        player = voice_client.create_ffmpeg_player(file_directory)
+        player.volume = tag['volume']
+        player.start()
+        utilities.set_player(bot, member.server.id, player)
         response = ''
 
     else:  # TODO: Add complex tags
@@ -378,7 +520,7 @@ async def get_response(bot, message, parsed_command, direct):
 
         elif plan_index == 3:  # raw
             tag = get_tag(tag_database, arguments)
-            raw_tag = str(tag['raw'])
+            raw_tag = str(tag['value'])
             if len(raw_tag) > 1950 or 'file' in options:
                 await bot.send_text_as_file(message.channel, raw_tag, 'raw')
             else:
@@ -389,7 +531,10 @@ async def get_response(bot, message, parsed_command, direct):
             response = '```\n{}```'.format(info)
 
         elif plan_index == 5:  # edit
-            response = "Coming soon :tm:"
+            response = "Tag edited:\n"
+            response += await edit_tag(
+                bot, tag_database, options, arguments,
+                message.server, message.author.id)
 
         elif plan_index in (6, 7):  # list and search
             response = list_search_tags(
@@ -400,11 +545,13 @@ async def get_response(bot, message, parsed_command, direct):
                 response = '```md\n' + response + '```'
 
         elif plan_index == 8:  # toggle
-            response = "Coming soon :tm:"
+            response = toggle_channel_filters(
+                bot, message.server, message.author.id, *arguments)
 
         elif plan_index == 9:  # retrieve tag
             response, message_type = await retrieve_tag(
-                bot, tag_database, arguments, message.author, options)
+                bot, tag_database, arguments, options,
+                message.author, message.channel.id)
 
     return (response, tts, message_type, extra)
 
@@ -412,43 +559,52 @@ async def get_response(bot, message, parsed_command, direct):
 async def handle_active_message(bot, message_reference, extra):
     if extra[0] == 'sound_check':
         urls = extra[1]['value']
-        options = {'format': 'worstaudio/worst'}
-        downloader = youtube_dl.YoutubeDL(options)
-        length_limit = bot.configurations[__name__]['max_sound_tag_length']
-        lengths = []
-        over_limit = []
-
-        for url in urls:
-            try:
-                info = await utilities.future(
-                    downloader.extract_info, url, download=False)
-                if 'duration' in info:
-                    duration = int(info['duration'])
-                else:
-                    chosen_format = info['formats'][0]
-                    extension = chosen_format['ext']
-                    download_url = chosen_format['url']
-                    file_location = await utilities.download_url(
-                        bot, download_url, extension=extension)
-                    duration = int(TinyTag.get(file_location).duration)
-                    os.remove(file_location)
-            except Exception as e:
-                raise BotException(
-                    EXCEPTION, "Failed to get duration from a URL.", url, e=e)
-            lengths.append(duration)
-            if duration > length_limit:
-                over_limit.append(url)
-
-        if over_limit:
-            raise BotException(
-                EXCEPTION, "The following URL(s) have audio over the "
-                "length limit of {0} seconds.".format(length_limit),
-                '\n'.join(over_limit))
+        lengths = await get_checked_durations(bot, urls)
         extra[1]['length'] = lengths
         extra[2][extra[4]] = extra[1]  # Assign to database
         response = "Tag '{0}' created. (Stored as '{1}')".format(
             extra[3], extra[4])
         await bot.edit_message(message_reference, response)
+
+
+async def get_checked_durations(bot, urls):
+    """Helper function that returns a list of lengths of the given URLs.
+
+    If any URL is over the length limit, an exception will be thrown.
+    """
+    length_limit = bot.configurations[__name__]['max_sound_tag_length']
+    options = {'format': 'worstaudio/worst'}
+    downloader = YoutubeDL(options)
+    lengths = []
+    over_limit = []
+    for url in urls:
+        try:
+            info = await utilities.future(
+                downloader.extract_info, url, download=False)
+            if 'duration' in info:
+                duration = int(info['duration'])
+            else:  # Manual download and check
+                chosen_format = info['formats'][0]
+                extension = chosen_format['ext']
+                download_url = chosen_format['url']
+                file_location = await utilities.download_url(
+                    bot, download_url, extension=extension)
+                duration = int(TinyTag.get(file_location).duration)
+                os.remove(file_location)
+        except Exception as e:
+            raise BotException(
+                EXCEPTION, "Failed to get duration from a URL.", url, e=e)
+        lengths.append(duration)
+        if duration > length_limit:
+            over_limit.append(url)
+
+    if over_limit:
+        raise BotException(
+            EXCEPTION, "The following URL(s) have audio over the "
+            "length limit of {} seconds.".format(length_limit),
+            '\n'.join(over_limit))
+    print("Returning lengths...", lengths)
+    return lengths
 
 
 def get_flags(flag_bits, simple=False):
@@ -473,24 +629,31 @@ def get_flag_bits(given_flags):
     for flag in given_flags:
         try:
             flag_index = simple_flag_list.index(flag)
+            flag_value += 1 << flag_index
         except ValueError:
             pass
-        flag_value += 1 << flag_index
     return flag_value
 
 
-def get_tag(tag_database, tag_name, include_name=False):
+def get_tag(tag_database, tag_name, include_name=False, permissions=None):
     """Gets the tag reference from the tag database.
 
     Throws an exception if the tag is not found.
-    If include_name is True, returns a tuple of the tag and the database name.
+    Keyword arguments:
+    include_name -- returns a tuple of the tag and the database name
+    permissions -- checks that the user is the tag owner or is a moderator
+        permissions should be a tuple: (bot, server, user_id)
     """
     tag_name = cleaned_tag_name(tag_name)
     tag = tag_database.get(tag_name, None)
     if tag is None:
         # TODO: Add a didyoumean feature
         raise BotException(EXCEPTION, "Tag '{}' not found.".format(tag_name))
-    elif include_name:
+    if permissions:
+        bot, server, user_id = permissions
+        if user_id != tag['author'] and not data.is_mod(bot, server, user_id):
+            raise BotException(EXCEPTION, "You are not the tag owner.")
+    if include_name:
         return (tag, tag_name)
     else:
         return tag
