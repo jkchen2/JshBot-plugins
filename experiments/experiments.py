@@ -29,10 +29,8 @@ def get_commands():
     commands['timemasheen'] = (['^'], [()])
     commands['play'] = (['?file ^'], [()])
     commands['volume'] = (['&'], [()])
-    commands['stfu'] = ([''], [()])
-    commands['ytdl'] = (['^'], [()])
     commands['rip'] = (['^'], [()])
-    commands['duration'] = (['^'], [()])
+    commands['nuke'] = (['^'], [()])
 
     return (commands, shortcuts, manual)
 
@@ -58,29 +56,12 @@ async def get_response(bot, message, parsed_command, direct):
     elif base == 'rip':
         response = get_rip(arguments)
 
-    elif base == 'ytdl':
-        downloader = youtube_dl.YoutubeDL({})
-        info = await utilities.future(
-            downloader.extract_info, arguments, download=False)
-        bot.extra = info
-        response = str(info)
-
-    elif base == 'duration':
-        options = {'format': 'worstaudio/worst'}
-        downloader = youtube_dl.YoutubeDL(options)
-        info = await utilities.future(
-            downloader.extract_info, arguments, download=False)
-        bot.extra = info
-        if 'duration' in info:
-            response = info['duration']
-        else:
-            chosen_format = info['formats'][0]
-            extension = chosen_format['ext']
-            download_url = chosen_format['url']
-            file_location = await utilities.download_url(
-                bot, download_url, extension=extension)
-            info = TinyTag.get(file_location)
-            response = info.duration
+    elif base == 'nuke':
+        if not data.is_owner(bot, message.author.id):
+            raise BotException(
+                EXCEPTION, "Can't nuke unless you're the owner.")
+        limit = int(arguments) + 1
+        await bot.purge_from(message.channel, limit=limit)
 
     elif base == 'timemasheen':  # carter's time masheen
         for delimiter in ('/', '.', '-'):
@@ -101,14 +82,6 @@ async def get_response(bot, message, parsed_command, direct):
             response = "Playing your stuff."
         else:
             raise BotException(EXCEPTION, "You're not in a voice channel.")
-
-    elif base == 'stfu':  # stop voice stuff
-        voice_connection = bot.voice_client_in(message.server)
-        if voice_connection:
-            await voice_connection.disconnect()
-            response = "Was I too obnoxious? Sorry mate."
-        else:
-            raise BotException(EXCEPTION, "No audio is playing.")
 
     elif base == 'volume':  # change volume
         player = data.get(
