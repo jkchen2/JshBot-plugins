@@ -1,130 +1,99 @@
 import discord
-import asyncio
-import os.path
 import urllib.request
 import random
 
-from jshbot import data
-
+from jshbot import utilities, configurations
+from jshbot.commands import Command, SubCommands
 from jshbot.exceptions import BotException
 
 __version__ = '0.1.0'
 EXCEPTION = 'Simple bot manager'
 uses_configuration = False
 
+
 def get_commands():
-    commands = {}
-    shortcuts = {}
-    manual = {}
+    commands = []
 
-    commands['botman'] = ([
-        'change ?avatar ?status', 'nick &', 'name ^', 'status &', 'avatar &'],[
-        ('change', 'c'), ('avatar', 'a'), ('status', 's')])
+    commands.append(Command(
+        'botman', SubCommands(
+            ('change ?avatar ?status', 'change (avatar) (status)', 'Changes '
+             'the avatar, status, or both from the config file.'),
+            ('nick &', 'nick <nickname>', 'Sets or clears the nickname.'),
+            ('name ^', 'name <name>', 'Changes the bot\'s name.'),
+            ('status &', 'status <text>', 'Changes the status to the text.'),
+            ('avatar &', 'avatar <url>', 'Changes the avatar to the URL.')),
+        description='Change simple bot stuff, like the avatar and status.',
+        other='Only bot moderators can use these commands', elevated_level=3))
 
-    manual['botman'] = {
-        'description': 'Simple bot manager. Allows you to change the name, '
-            'status, and avatar of the bot in-chat.',
-        'usage': [
-            ('-change (-avatar) (-status)', 'Changes to a random avatar, '
-                'status, or both from the list in the data directory.'),
-            ('-nick (nickname)', 'Changes the nickname of the bot. To clear '
-                'the nickname, do not enter one.'),
-            ('-name <name>', 'Changes the name of the bot. Limit of 20 '
-                'characters. Limited to 2 changes per hour.'),
-            ('-status (status)', 'Changes the status of the bot. To clear '
-                'the status, do not enter one.'),
-            ('-avatar (URL)', 'Changes the avatar of the bot with the given '
-                'URL. To clear the avatar, do not enter a URL.')],
-        'other': 'Only bot moderators can use these commands.'}
+    return commands
 
-    return (commands, shortcuts, manual)
 
-def get_random_line(bot, name):
-    '''
-    Gets a random line in the file given by the name argument.
-    '''
-    file_path = bot.path + '/data/simple_bot_manager.py/' + name
+async def change_avatar(bot, url=None):
+    """Clears or sets the avatar if the URL is given."""
     try:
-        if os.stat(file_path).st_size > 0:
-            with open(file_path, 'r') as data_file:
-                return str(random.choice(list(data_file))).rstrip()
+        if url:
+            avatar = await utilities.future(urllib.request.urlopen, url)
+            avatar_bytes = avatar.read()
         else:
-            raise BotException(EXCEPTION,
-                    "The {} file is empty.".format(name))
-    except:
-        raise BotException(EXCEPTION,
-                "The {} file was not found.".format(name))
+            avatar_bytes = None
+        await bot.edit_profile(bot.get_token(), avatar=avatar_bytes)
+    except Exception as e:
+        raise BotException(EXCEPTION, "Failed to update the avatar.", e=e)
 
-async def get_response(bot, message, parsed_command, direct):
 
-    response = ''
-    tts = False
-    message_type = 0
-    extra = None
-    base, plan_index, options, arguments = parsed_command
+async def get_response(
+        bot, message, base, blueprint_index, options, arguments,
+        keywords, cleaned_content):
+    response, tts, message_type, extra = ('', False, 0, None)
 
     response = "Bot stuff updated!"
 
-    if not data.is_owner(bot, message.author.id):
-        raise BotException(EXCEPTION,
-                "You must be a bot owner for these commands.")
-
-    if plan_index == 0: # Change avatar, status, or both
+    if blueprint_index == 0:  # Change avatar, status, or both
 
         if len(options) == 0:
-            raise BotException(EXCEPTION,
-                    "Either the avatar, status, or both flags must be used.")
+            raise BotException(
+                EXCEPTION,
+                "Either the avatar, status, or both flags must be used.")
 
         if 'avatar' in options:
-            url = get_random_line(bot, 'avatars.txt')
-            try: # Try to change the avatar
-                avatar_bytes = urllib.request.urlopen(url).read()
-                await bot.edit_profile(bot.get_token(), avatar=avatar_bytes)
-            except Exception as e:
-                raise BotException(EXCEPTION,
-                        "Failed to update the avatar.", e=e)
+            text = configurations.get(
+                bot, __name__, extra='avatars', extension='txt')
+            url = random.choice(text.splitlines()).rstrip()
+            await change_avatar(bot, url=url)
         if 'status' in options:
+            text = configurations.get(
+                bot, __name__, extra='statuses', extension='txt')
+            status = random.choice(text.splitlines()).rstrip()
             try:
-                status = get_random_line(bot, 'statuses.txt')
                 await bot.change_status(discord.Game(name=status))
             except Exception as e:
-                raise BotException(EXCEPTION,
-                        "Failed to update the status.", e=e)
+                raise BotException(
+                    EXCEPTION, "Failed to update the status.", e=e)
 
-    elif plan_index == 1: # Change nickname
-        if not direct:
+    elif blueprint_index == 1:  # Change nickname
+        if not message.channel.is_private:
             try:
                 await bot.change_nickname(
-                        message.server.me, arguments if arguments else None)
+                    message.server.me, arguments[0] if arguments[0] else None)
             except Exception as e:
-                raise BotException(EXCEPTION,
-                        "Failed to change the nickname.", e=e)
+                raise BotException(
+                    EXCEPTION, "Failed to change the nickname.", e=e)
         else:
             response = "Cannot change nickname in a direct message."
-    elif plan_index == 2: # Change name
-        if len(arguments) > 20:
+    elif blueprint_index == 2:  # Change name
+        if len(arguments[0]) > 20:
             raise BotException(EXCEPTION, "Name is longer than 20 characters.")
         try:
-            await bot.edit_profile(bot.get_token(), username=arguments)
+            await bot.edit_profile(bot.get_token(), username=arguments[0])
         except Exception as e:
-            raise BotException(EXCEPTION,
-                    "Failed to update the name.", e=e)
-    elif plan_index == 3: # Change status
+            raise BotException(EXCEPTION, "Failed to update the name.", e=e)
+    elif blueprint_index == 3:  # Change status
         try:
             await bot.change_status(
-                    discord.Game(name=arguments) if arguments else None)
+                discord.Game(name=arguments[0]) if arguments[0] else None)
         except Exception as e:
             raise BotException(EXCEPTION, "Failed to update the status.", e=e)
-    elif plan_index == 4: # Change avatar
-        try:
-            if arguments:
-                avatar_bytes = urllib.request.urlopen(arguments).read()
-            else:
-                avatar_bytes = None
-            await bot.edit_profile(bot.get_token(), avatar=avatar_bytes)
-        except Exception as e:
-            raise BotException(EXCEPTION, "Failed to update the avatar.", e=e)
+    elif blueprint_index == 4:  # Change avatar
+        await change_avatar(bot, arguments[0])
 
     return (response, tts, message_type, extra)
-
-
