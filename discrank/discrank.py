@@ -9,7 +9,8 @@ import logging
 from riotwatcher import RiotWatcher
 from riotwatcher import LoLException, error_429, error_404
 
-from jshbot import data
+from jshbot import data, configurations
+from jshbot.commands import Command, SubCommands, Shortcuts
 from jshbot.exceptions import ErrorTypes, BotException
 from jshbot.utilities import future
 
@@ -20,57 +21,45 @@ uses_configuration = True
 
 def get_commands():
     """Sets up new commands and shortcuts in the proper syntax."""
+    commands = []
 
-    commands = {}
-    shortcuts = {}
-    manual = {}
+    commands.append(Command(
+        'lol', SubCommands(
+            ('summoner ^', 'summoner <summoner name>', 'Gets some basic '
+             'information about the given summoner.'),
+            ('match ^', 'match <summoner name>', 'Gets the current or last '
+             'ranked match of the given summoner.'),
+            ('mastery ?champion: ^', 'mastery (champion <"champion name">) '
+             '<summoner name>', 'Gets a list of the top 10 champions of the '
+             'summoner based off of mastery. If a champion is specified, it '
+             'will return information for that champion only.'),
+            ('chests ^', 'chests <summoner name>', ''),
+            ('challenge ::::', 'challenge <"summoner 1"> <"summoner 2"> '
+             '<"champion 1"> <"champion 2">', 'This command compares two '
+             'summoner\'s mastery points, mastery levels, and number of '
+             'games played (ranked) data against each other.'),
+            ('setregion &', 'setregion (region)', 'Sets the default region '
+             'for the server. Valid region codes are NA (default), BR, EUNE, '
+             'EUW, JP, KR, LAN, LAS, OCE, RU, and TR.'),
+            ('region', 'region', 'Gets the current default region for this '
+             'server.')),
+        shortcuts=Shortcuts(
+            ('summoner', 'summoner {}', '^', 'summoner <summoner name>',
+             '<summoner name>'),
+            ('match', 'match {}', '^', 'match <summoner name>',
+             '<summoner name>'),
+            ('mastery', 'mastery {}', '^', 'mastery <summoner name>',
+             '<summoner name>'),
+            ('challenge', 'challenge {} {} {} {}', '::::', 'challenge '
+             '<"summoner 1"> <"summoner 2"> <"champion 1"> <"champion 2">',
+             '<"summoner 1"> <"summoner 2"> <"champion 1"> <"champion 2">'),
+            ('blitz', '{}', '^', '<arguments>', '<arguments>')),
+        description='Get League of Legends information from the API.',
+        other='You can specify the region for a summoner by adding '
+              '\':<region>\' after the name. For example, try\n{invoker}lol '
+              'summoner hide on bush:kr'))
 
-    commands['blitz'] = ([
-        'summoner ?extra ^',
-        'match ?basic ^',
-        'mastery ?champion: ^',
-        'challenge ::::',
-        'chests ^',
-        'setregion &',
-        'region'], [
-        ('summoner', 'user', 's', 'i', 'info'),
-        ('extra', 'e', 'detailed'),
-        ('basic', 'b', 'simple'),
-        ('champion', 'c'),
-        ('chests', 'chest', 'box', 'boxes')])
-
-    shortcuts['summoner'] = ('blitz -summoner {}', '^')
-    shortcuts['mastery'] = ('blitz -mastery {}', '^')
-    shortcuts['challenge'] = ('blitz -challenge {} {} {} {}', '::::')
-
-    manual['blitz'] = {
-        'description': 'Get League of Legends information from the API.',
-        'usage': [
-            ('-region', 'Gets the current region for the server.'),
-            ('-setregion <region>', 'Sets the default region to the specified '
-                'one. The region codes are NA (default), BR, EUNE, EUW, JP, '
-                'KR, LAN, LAS, OCE, RU, and TR.'),
-            ('-summoner (-extra) <summoner>', 'Gets the information of the '
-                'given summoner. Extra information provides a more verbose '
-                'result.'),
-            ('-match (-basic) <summoner>', 'Gets the current or most '
-                'recent ranked match data.'),
-            ('-mastery <summoner> (-champion <champion>)', 'Gets the mastery '
-                'data of the given summoner.'),
-            ('-challenge <summoner 1> <summoner 2> <champion 1> <champion 2>',
-                'This command compares two summoner\'s mastery points, '
-                'mastery levels, and # of games played (ranked) data against '
-                'each other.'),
-            ('-chests <summoner>', 'Gets the available chests for the given '
-                'summoner.')],
-        'shortcuts': [
-            ('summoner <arguments>', '-summoner <arguments>'),
-            ('challenge <summoner 1> <summoner 2> <champion 1> <champion 2>',
-                '-challenge <summoner 1> <summoner 2> <champion 1> '
-                '<champion 2>'),
-            ('mastery <arguments>', '-mastery <arguments>')]}
-
-    return (commands, shortcuts, manual)
+    return commands
 
 
 def api_cooldown():
@@ -821,54 +810,48 @@ def set_region(bot, static, server_id, region):
     return response
 
 
-async def get_response(bot, message, parsed_command, direct):
-    response = ''
-    tts = False
-    message_type = 0
-    extra = None
-    base, plan_index, options, arguments = parsed_command
+async def get_response(
+        bot, message, base, blueprint_index, options, arguments,
+        keywords, cleaned_content):
+    response, tts, message_type, extra = ('', False, 0, None)
 
-    if base == 'blitz':
+    if message.channel.is_private:
+        region = 'na'
+    else:
+        region = data.get(
+            bot, __name__, 'region',
+            server_id=message.server.id, default='na')
+    static = data.get(bot, __name__, 'static_data', volatile=True)
 
-        if direct:
-            region = 'na'
+    if blueprint_index == 0:  # Get basic summoner information
+        response = await get_summoner_information(
+            bot, static, arguments[0], region, verbose=('extra' in options))
+
+    elif blueprint_index == 1:  # Get match information
+        response = await get_match_table_wrapper(
+            bot, static, arguments[0], region,
+            verbose=('basic' not in options))
+
+    elif blueprint_index == 2:  # Get mastery table
+        champion = options['champion'] if 'champion' in options else None
+        response = await get_mastery_table(
+            bot, static, arguments[0], region, champion=champion)
+
+    elif blueprint_index == 3:  # Chests
+        response = await get_chests(bot, static, arguments[0], region)
+
+    elif blueprint_index == 4:  # Challenge
+        response = await get_challenge_result(
+            bot, static, arguments, region)
+
+    elif blueprint_index == 5:  # Set region
+        if message.channel.is_private:
+            response = "Can't set region in a direct message, sorry."
         else:
-            region = data.get(
-                bot, __name__, 'region',
-                server_id=message.server.id, default='na')
-        static = data.get(
-            bot, __name__, 'static_data', volatile=True)
+            response = set_region(bot, static, message.server.id, arguments[0])
 
-        if plan_index == 0:  # Get basic summoner information
-            response = await get_summoner_information(
-                bot, static, arguments, region, verbose=('extra' in options))
-
-        elif plan_index == 1:  # Get match information
-            response = await get_match_table_wrapper(
-                bot, static, arguments, region,
-                verbose=('basic' not in options))
-
-        elif plan_index == 2:  # Get mastery table
-            champion = options['champion'] if 'champion' in options else None
-            response = await get_mastery_table(
-                bot, static, arguments, region, champion=champion)
-
-        elif plan_index == 3:  # Challenge
-            response = await get_challenge_result(
-                bot, static, arguments, region)
-
-        elif plan_index == 4:  # Chests
-            response = await get_chests(bot, static, arguments, region)
-
-        elif plan_index == 5:  # Set region
-            if direct:
-                response = "Can't set region in a direct message, sorry."
-            else:
-                response = set_region(
-                    bot, static, message.server.id, arguments)
-
-        elif plan_index == 6:  # Get region
-            response = "The current region is {}.".format(region.upper())
+    elif blueprint_index == 6:  # Get region
+        response = "The current region is {}.".format(region.upper())
 
     return (response, tts, message_type, extra)
 
@@ -893,7 +876,7 @@ def get_static_data(watcher):
 
 async def on_ready(bot):
     # Obtain all static data required
-    watcher = RiotWatcher(bot.configurations['discrank.py']['token'])
+    watcher = RiotWatcher(configurations.get(bot, __name__, key='token'))
     if not watcher.can_make_request():
         raise BotException(
             EXCEPTION, "The given Riot API token cannot get requests.",
@@ -1003,7 +986,6 @@ async def on_ready(bot):
         'jp': 'JP1'
     }
 
-    data.add(
-        bot, __name__, 'static_data',
-        [watcher, champions, spells, modes, regions, platforms], volatile=True)
+    static_data = [watcher, champions, spells, modes, regions, platforms]
+    data.add(bot, __name__, 'static_data', static_data, volatile=True)
     print("Discrank is ready!")
