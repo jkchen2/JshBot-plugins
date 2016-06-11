@@ -8,11 +8,12 @@ from operator import itemgetter
 from youtube_dl import YoutubeDL
 from tinytag import TinyTag
 
-from jshbot import data, utilities
+from jshbot import data, utilities, configurations
+from jshbot.commands import Command, SubCommands, Shortcuts
 from jshbot.exceptions import BotException
 
 __version__ = '0.1.0'
-EXCEPTION = 'Tag demo'
+EXCEPTION = 'Tags'
 uses_configuration = True
 
 flag_list = ['Sound', 'Private', 'NSFW', 'Complex', 'Random']
@@ -20,76 +21,55 @@ simple_flag_list = list(map(str.lower, flag_list))
 
 
 def get_commands():
+    commands = []
 
-    commands = {}
-    shortcuts = {}
-    manual = {}
+    commands.append(Command(
+        'tag', SubCommands(
+            ('create: random ?private ?sound ?nsfw ?complex :+', 'create '
+             '<"tag name"> random ([options]) <"text 1"> <"text 2"> '
+             '("text 3") (...)', 'Creates a tag, but each entry is treated as '
+             'separate. To have spaces in entries, use quotes.'),
+            ('create: ?private ?sound ?nsfw ?complex ^', 'create <"tag name"> '
+             '(private) (sound) (nsfw) <tag text>', 'Creates a tag '
+             'with the given options. A private tag can only be called by '
+             'its owner or bot moderators. Sound tags are played through the '
+             'voice channel you are currently in.'),
+            ('remove ^', 'remove <tag name>', 'Removes the specified tag. You '
+             'must be the tag author, or a bot moderator.'),
+            ('raw ?file ^', 'raw (file) <tag name>', 'Gets the raw tag data. '
+             'Useful for figuring out what is inside a random tag. If the '
+             '\'file\' option is included, it will send the contents as a '
+             'text file.'),
+            ('info ^', 'info <tag name>', 'Gets basic tag information, like '
+             'the author, creation date, number of uses, length, etc.'),
+            ('edit: ?set: ?add: ?remove: ?volume: ?nsfw', 'edit <"tag name"> '
+             '(set <"new text">) (add <"entry">) (remove <"entry">) (volume '
+             '<percent>) (nsfw)', 'Modifies the given tag with the given '
+             'options. Note that you cannot set text for a random tag. If you '
+             'add an entry to a non-random tag, this makes it random. If all '
+             'entries are removed, this deletes the tag. If this is a sound '
+             'tag, the volume will be applied to all entries in the tag. '
+             'Lastly, the NSFW flag can be toggled.'),
+            ('list &', 'list '
+             '(<user name>)', 'Lists all tags. If a '
+             'user name is given, this will list tags created by that user.'),
+            ('search ^', 'search <terms>',
+             'Searches for tag names with the given terms.'),
+            ('toggle :^', 'toggle <type> <channel name>', 'Toggles the '
+             'channel\'s tag filter settings. <type> must be "all" or "nsfw". '
+             'The channel can be either a text or voice channel.'),
+            ('^', '<tag name>', 'Retrieves the given tag.')),
+        shortcuts=Shortcuts(
+            ('t', '{}', '^', '<arguments>', '<arguments>'),
+            ('tc', 'create {}', '^', 'create <arguments>', '<arguments>'),
+            ('stc', 'create {} sound {}', ':^', 'create <"tag name"> sound '
+             '<arguments>', '<"tag name"> <arguments>'),
+            ('tr', 'remove {}', '^', 'remove <arguments>', '<arguments>'),
+            ('tl', 'list {}', '&', 'list (<arguments>)', '(<arguments>)'),
+            ('ts', 'search {}', '^', 'search <arguments>', '<arguments>')),
+        description='Create and recall macros of text and sound.'))
 
-    commands['tag'] = ([
-        'create: ?private ?sound ?nsfw ?complex ^',
-        'create: random ?private ?sound ?nsfw ?complex :+', 'remove ^',
-        'raw ?file ^', 'info ^', 'edit: ?add: ?remove: ?volume: ?nsfw &',
-        'list ?sound ?server: &', 'search ^', 'toggle ::', '?text ?sound ^'], [
-        ('create', 'c'), ('private', 'p'), ('sound', 's'), ('random', 'rand'),
-        ('remove', 'r'), ('info', 'i'), ('edit', 'e'), ('add', 'a'),
-        ('list', 'l'), ('text', 't')])
-
-    shortcuts['tc'] = ('tag -create {}', '^')
-    shortcuts['tr'] = ('tag -remove {}', '^')
-    shortcuts['t'] = ('tag {}', '^')
-    shortcuts['tl'] = ('tag -list {}', '&')
-    shortcuts['ts'] = ('tag -search {}', '^')
-    shortcuts['stc'] = ('tag -create {} -sound {}', ':^')
-
-    manual['tag'] = {
-        'description': 'Proof of concept tags using the data framework.',
-        'usage': [
-            ('(-text) (-sound) <tag name>', 'Retrieves the given tag. If it '
-                'is a sound tag, it plays the tag in the voice channel you '
-                'are in. If a tag has both sound and text components, you can '
-                'specify which one you want with the options. By default, it '
-                'attempts to do both if they exist.'),
-            ('-create <tag name> (-private) (-sound) (-nsfw) (-complex) '
-                '<tag text>', 'Creates a tag that follows the given options. '
-                'A private tag can only be called by its owner or moderators, '
-                'and a sound tag is played in the voice channel of the '
-                'message author.'),
-            ('-create <tag name> -random (-private_ (-sound) <selection 1> '
-                '<selection 2> (selection 3) (...)', 'Works the same as the '
-                'regular create command, but will select a random selection '
-                'when the tag is called.'),
-            ('-remove <tag name>', 'Removes the specified tag. You must the '
-                'tag owner or a moderator.'),
-            ('-raw (-file) <tag name>', 'Gets the raw tag data. Useful for '
-                'figuring out what is inside a random tag. If the file option '
-                'is included, it will send the contents as a text file.'),
-            ('-info (tag name)', 'Gets basic tag information. If a tag is not '
-                'specified, it will get tag statistics for the server.'),
-            ('-edit <tag name> (-add <new selection>) (-remove '
-                '<old selection>) (-volume <new volume>) (-nsfw) '
-                '(modified tag text)', 'Edits the given tag given the '
-                'modified tag text. If you are editing a random tag, use the '
-                'add or remove options to manipulate the random list. '
-                'Including the NSFW flag toggles the flag as NSFW. If this is '
-                'a sound tag, the new volume will be applied to it if '
-                'specified.'),
-            ('-list (user)', 'Lists all tags, or if a user is specified, only '
-                'tags made by that user.'),
-            ('-search <text>', 'Searches all tags for the given text.'),
-            ('-toggle <channel name> <type>', 'Toggles the channel\'s tag '
-                'filter settings. <type> must be "all" or "nsfw". <channel '
-                'name> can be either a text or voice channel.')],
-        'shortcuts': [
-            ('t <arguments>', 'tag <arguments>'),
-            ('tc <arguments>', 'tag -create <arguments>'),
-            ('tr <tag name>', 'tag -remove <tag name>'),
-            ('tl (user)', 'tag -list (user)'),
-            ('ts <text>', 'tag -search <text>'),
-            ('stc <tag name> <tag url>',
-                'tag -create <tag name> -sound <tag url>')],
-        'other': 'This is just proof of concept. Nothing is final yet.'}
-
-    return (commands, shortcuts, manual)
+    return commands
 
 async def create_tag(
         bot, tag_database, tag_name, database_name,
@@ -99,8 +79,9 @@ async def create_tag(
     If it is a tag with sound, it will check that the sound length is no
     longer than the limit.
     """
-    length_limit = bot.configurations[__name__]['max_tag_name_length']
-    default_max_tags = bot.configurations[__name__]['max_tags_per_server']
+    global_settings = configurations.get(bot, __name__)
+    length_limit = global_settings['max_tag_name_length']
+    default_max_tags = global_settings['max_tags_per_server']
     server_settings = data.get(
         bot, __name__, 'settings', server_id=server_id, default={})
     tag_limit = server_settings.get('max_tags', default_max_tags)
@@ -108,6 +89,10 @@ async def create_tag(
         tag_limit = default_max_tags
 
     # Check for issues
+    command = bot.commands['tag']
+    if database_name in command.keywords:
+        raise BotException(
+            EXCEPTION, "That tag name is reserved as a keyword.")
     if len(tag_name) > length_limit:
         raise BotException(
             EXCEPTION, "The tag name cannot be longer than "
@@ -123,9 +108,7 @@ async def create_tag(
                 tag_limit))
 
     # Create the tag
-    if 'random' not in options:
-        text = [text]
-    elif len(text) > 100:
+    if 'random' in options and len(text) > 100:
         raise BotException(
             EXCEPTION, "Random tags can have no more than 100 entries.")
     length = list(map(len, text))
@@ -202,13 +185,21 @@ def get_tag_info(bot, tag_database, tag_name, server):
                 tag_length, created_time, used_time)
 
 
-async def edit_tag(bot, tag_database, options, new_text, server, user_id):
+async def edit_tag(bot, tag_database, options, server, user_id):
     """Edits the tag from options with the given options."""
     tag, tag_name = get_tag(
         tag_database, options['edit'], include_name=True,
         permissions=(bot, server, user_id))
     tag_flags = get_flags(tag['flags'], simple=True)
     additions = []
+
+    new_text = options.get('set', '')
+    if 'set' in options:
+        new_text = options['set']
+        if not new_text:
+            raise BotException(EXCEPTION, "Can\'t set empty text.")
+    else:
+        new_text = ''
 
     if 'nsfw' in options:
         if 'nsfw' in tag_flags:
@@ -278,7 +269,14 @@ async def edit_tag(bot, tag_database, options, new_text, server, user_id):
     if new_text:
         if 'random' in tag_flags:
             raise BotException(EXCEPTION, "Cannot set text for a random tag.")
-        tag['value'] = [new_text]
+        elif 'sound' in tag_flags:  # Check audio length
+            length = await get_checked_durations(bot, [options['set']])
+            tag['length'] = length
+            tag['value'] = [options['set']]
+            additions.append("Set tag URL.")
+        else:
+            tag['value'] = [new_text]
+            additions.append("Set tag text.")
     elif len(options) == 1:
         raise BotException(EXCEPTION, "Nothing was changed!")
 
@@ -286,27 +284,29 @@ async def edit_tag(bot, tag_database, options, new_text, server, user_id):
     return '\n'.join(additions)
 
 
-def list_search_tags(bot, message, plan_index, arguments, direct):
+def list_search_tags(bot, message, blueprint_index, arguments):
     """Gets a list of the tags given the parameters.
 
     If the message is sent directly, it lists all of the tags that the user
     can see. Arguments may define the list or search arguments.
     """
     if message.channel.is_private:
+        direct = True
         servers = [server for server in bot.servers if (
             message.author in server.members)]
     else:
+        direct = False
         servers = [message.server]
     author = None
     search = None
     response = ''
 
     # Mark list or search arguments
-    if arguments and plan_index == 6:
+    if arguments and blueprint_index == 6:
         author = data.get_member(
             bot, arguments, server=message.server, strict=(not direct))
         response += "Tags by '{}':\n".format(author.name)
-    elif arguments and plan_index == 7:
+    elif arguments and blueprint_index == 7:
         search = cleaned_tag_name(arguments)
         response += "Tags with '{}' in it:\n".format(search)
 
@@ -363,7 +363,7 @@ def list_search_tags(bot, message, plan_index, arguments, direct):
     return response
 
 
-def toggle_channel_filters(bot, server, user_id, channel_name, flag):
+def toggle_channel_filters(bot, server, user_id, flag, channel_name):
     """Toggles the given channel's filter via the flag. Moderators only."""
     if not data.is_mod(bot, server, user_id):
         raise BotException(
@@ -436,13 +436,15 @@ async def retrieve_tag(
         voice_filter = data.get(
             bot, __name__, 'filter', server_id=member.server.id,
             channel_id=voice_channel.id, default=[])
-        if 'all' in voice_filter:
-            raise BotException(
-                EXCEPTION, "Sound tags are disabled in this voice channel.")
-        elif 'nsfw' in flags and 'nsfw' in voice_filter:
-            raise BotException(
-                EXCEPTION,
-                "NSFW sound tags are disabled in this voice channel.")
+        if not is_mod:
+            if 'all' in voice_filter:
+                raise BotException(
+                    EXCEPTION,
+                    "Sound tags are disabled in this voice channel.")
+            elif 'nsfw' in flags and 'nsfw' in voice_filter:
+                raise BotException(
+                    EXCEPTION,
+                    "NSFW sound tags are disabled in this voice channel.")
 
         voice_client = await utilities.join_and_ready(
             bot, voice_channel, member.server)
@@ -478,30 +480,28 @@ async def retrieve_tag(
     return (response, 0)
 
 
-async def get_response(bot, message, parsed_command, direct):
-    response = ''
-    tts = False
-    message_type = 0
-    extra = None
-    base, plan_index, options, arguments = parsed_command
+async def get_response(
+        bot, message, base, blueprint_index, options, arguments,
+        keywords, cleaned_content):
+    response, tts, message_type, extra = ('', False, 0, None)
 
     if base == 'tag':
 
-        if not direct:
+        if not message.channel.is_private:
             tag_database = data.get(
                 bot, __name__, 'tags', server_id=message.server.id,
                 default={}, create=True, save=True)
 
-        elif plan_index not in (6, 7):
+        elif blueprint_index not in (6, 7):
             raise BotException(
                 EXCEPTION, "This command cannot be used in a direct message.")
 
-        if plan_index in (0, 1):  # create
+        if blueprint_index in (0, 1):  # create
             tag_name = options['create']
             database_name = cleaned_tag_name(tag_name)
             new_tag = await create_tag(
                 bot, tag_database, tag_name, database_name, message.author.id,
-                message.server.id, options, arguments, plan_index)
+                message.server.id, options, arguments, blueprint_index)
             if 'sound' in options:
                 response = "Checking the length of the audio..."
                 message_type = 3
@@ -512,45 +512,47 @@ async def get_response(bot, message, parsed_command, direct):
                 response = "Tag '{0}' created. (Stored as '{1}')".format(
                     tag_name, database_name)
 
-        elif plan_index == 2:  # remove tag
+        elif blueprint_index == 2:  # remove tag
             remove_tag(
-                bot, tag_database, arguments,
+                bot, tag_database, arguments[0],
                 message.server, message.author.id)
             response = "Tag removed."
 
-        elif plan_index == 3:  # raw
-            tag = get_tag(tag_database, arguments)
+        elif blueprint_index == 3:  # raw
+            tag = get_tag(tag_database, arguments[0])
             raw_tag = str(tag['value'])
             if len(raw_tag) > 1950 or 'file' in options:
-                await bot.send_text_as_file(message.channel, raw_tag, 'raw')
+                await utilities.send_text_as_file(
+                    message.channel, raw_tag, 'raw')
             else:
                 response = '```\n{}```'.format(raw_tag)
 
-        elif plan_index == 4:  # tag info
-            info = get_tag_info(bot, tag_database, arguments, message.server)
+        elif blueprint_index == 4:  # tag info
+            info = get_tag_info(
+                bot, tag_database, arguments[0], message.server)
             response = '```\n{}```'.format(info)
 
-        elif plan_index == 5:  # edit
+        elif blueprint_index == 5:  # edit
             response = "Tag edited:\n"
             response += await edit_tag(
-                bot, tag_database, options, arguments,
-                message.server, message.author.id)
+                bot, tag_database, options, message.server, message.author.id)
 
-        elif plan_index in (6, 7):  # list and search
+        elif blueprint_index in (6, 7):  # list and search
             response = list_search_tags(
-                bot, message, plan_index, arguments, direct)
+                bot, message, blueprint_index, arguments[0])
             if len(response) > 1950:
-                await bot.send_text_as_file(message.channel, response, 'tags')
+                await utilities.send_text_as_file(
+                    message.channel, response, 'tags')
             else:
                 response = '```md\n' + response + '```'
 
-        elif plan_index == 8:  # toggle
+        elif blueprint_index == 8:  # toggle
             response = toggle_channel_filters(
                 bot, message.server, message.author.id, *arguments)
 
-        elif plan_index == 9:  # retrieve tag
+        elif blueprint_index == 9:  # retrieve tag
             response, message_type = await retrieve_tag(
-                bot, tag_database, arguments, options,
+                bot, tag_database, arguments[0], options,
                 message.author, message.channel.id)
 
     return (response, tts, message_type, extra)
@@ -603,7 +605,6 @@ async def get_checked_durations(bot, urls):
             EXCEPTION, "The following URL(s) have audio over the "
             "length limit of {} seconds.".format(length_limit),
             '\n'.join(over_limit))
-    print("Returning lengths...", lengths)
     return lengths
 
 
