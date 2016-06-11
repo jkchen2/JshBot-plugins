@@ -73,6 +73,7 @@ def get_commands():
 
     return commands
 
+
 async def get_response(
         bot, message, base, blueprint_index, options, arguments,
         keywords, cleaned_content):
@@ -81,7 +82,7 @@ async def get_response(
     if base == 'test':
 
         if blueprint_index == 0:  # order
-            response = "Ordered!"
+            response = "Anarchy!"
 
         elif blueprint_index == 1:  # shortcut 1
             response = "You reached shortcut 1!"
@@ -92,8 +93,8 @@ async def get_response(
         elif blueprint_index == 3:  # that's pretty aesthetic mate
             text = arguments[0].replace(' ', '').lower()
             response = ' '.join([char for char in text])
-            await bot.notify_owners(
-                "Somebody made {} aesthetic.".format(arguments[0]))
+            await utilities.notify_owners(
+                bot, "Somebody made {} aesthetic.".format(arguments[0]))
 
         else:  # asyncio testing
             long_future = bot.loop.run_in_executor(None, long_function)
@@ -133,7 +134,11 @@ async def get_response(
         start_date = datetime.datetime.strptime(
             arguments[0], '%d{0}%m{0}%y'.format(delimiter))
         end_date = start_date + datetime.timedelta(days=1)
-        await send_logs_as_file(bot, message.channel, start_date, end_date)
+        log_text = await utilities.get_log_text(
+            bot, message.channel, limit=20000,
+            before=end_date, after=start_date)
+        await utilities.send_text_as_file(
+            bot, message.channel, log_text, 'carter')
         message_type = 1
 
     elif base == 'play':  # ytdl stuff
@@ -148,7 +153,7 @@ async def get_response(
 
     elif base == 'volume':  # change volume
         player = utilities.get_player(bot, message.server.id)
-        if arguments:
+        if arguments[0]:
             volume = float(arguments[0])
             if volume < 0 or volume > 2:
                 raise BotException(EXCEPTION, "Valid range is [0.0-2.0].")
@@ -204,31 +209,4 @@ async def play_this(bot, server, voice_channel, location, use_file):
         bot, __name__, 'volume', server_id=server.id, default=1.0)
     player.volume = volume
     player.start()
-    data.add(
-        bot, __name__, 'voice_client', player,
-        server_id=server.id, volatile=True)
-
-
-async def send_logs_as_file(bot, channel, start_date, end_date):
-    """Wrapper function for Carter's time machine."""
-    messages = []
-    large_text = ''
-    async for message in bot.logs_from(
-            channel, limit=20000, before=end_date, after=start_date):
-        messages.append(message)
-    for message in reversed(messages):
-        if message.edited_timestamp:
-            edited = ' (edited {})'.format(message.edited_timestamp)
-        else:
-            edited = ''
-        if message.attachments:
-            urls = []
-            for attachment in message.attachments:
-                urls.append(attachment['url'])
-            attached = ' (attached {})'.format(urls)
-        else:
-            attached = ''
-        text = ("{0.author.id} ({0.author.name}) at {0.timestamp}{1}{2}: "
-                "\n\t{0.content}\n").format(message, edited, attached)
-        large_text += text
-    await bot.send_text_as_file(channel, large_text, 'carter')
+    utilities.set_player(bot, server.id, player)
