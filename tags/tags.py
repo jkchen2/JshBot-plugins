@@ -42,13 +42,14 @@ def get_commands():
              'text file.'),
             ('info ^', 'info <tag name>', 'Gets basic tag information, like '
              'the author, creation date, number of uses, length, etc.'),
-            ('edit: ?set: ?add: ?remove: ?volume: ?nsfw', 'edit <"tag name"> '
-             '(set <"new text">) (add <"entry">) (remove <"entry">) (volume '
-             '<percent>) (nsfw)', 'Modifies the given tag with the given '
-             'options. Note that you cannot set text for a random tag. If you '
-             'add an entry to a non-random tag, this makes it random. If all '
-             'entries are removed, this deletes the tag. If this is a sound '
-             'tag, the volume will be applied to all entries in the tag. '
+            ('edit: ?set: ?add: ?remove: ?volume: ?private ?nsfw', 'edit '
+             '<"tag name"> (set <"new text">) (add <"entry">) (remove '
+             '<"entry">) (volume <percent>) (private) (nsfw)', 'Modifies the '
+             'given tag with the given options. Note that you cannot set text '
+             'for a random tag. If you add an entry to a non-random tag, this '
+             'makes it random. If all entries are removed, this deletes the '
+             'tag. If this is a sound tag, the volume will be applied to all '
+             'entries in the tag. The \'private\' option toggles privacy. '
              'Lastly, the NSFW flag can be toggled.'),
             ('list &', 'list '
              '(<user name>)', 'Lists all tags. If a '
@@ -193,6 +194,9 @@ async def edit_tag(bot, tag_database, options, server, user_id):
     tag_flags = get_flags(tag['flags'], simple=True)
     additions = []
 
+    if len(options) == 1:
+        raise BotException(EXCEPTION, "Nothing was changed!")
+
     new_text = options.get('set', '')
     if 'set' in options:
         new_text = options['set']
@@ -277,8 +281,14 @@ async def edit_tag(bot, tag_database, options, server, user_id):
         else:
             tag['value'] = [new_text]
             additions.append("Set tag text.")
-    elif len(options) == 1:
-        raise BotException(EXCEPTION, "Nothing was changed!")
+
+    if 'private' in options:
+        if 'private' in tag_flags:
+            tag_flags.remove('private')
+            additions.append("Tag is now public.")
+        else:
+            tag_flags.append('private')
+            additions.append("Tag is now private.")
 
     tag['flags'] = get_flag_bits(tag_flags)  # Last. Avoids exceptions
     return '\n'.join(additions)
