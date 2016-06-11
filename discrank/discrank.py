@@ -800,13 +800,12 @@ def set_region(bot, static, server_id, region):
         if region not in regions:
             raise BotException(
                 EXCEPTION, "That is not a defined region. See "
-                "{}help blitz 2".format(bot.command_invokers[0]))
+                "{}help lol setregion".format(bot.command_invokers[0]))
         else:
             region = regions[region]
     if not response:
         response = "Region set!"
-    data.add(
-        bot, __name__, 'region', region, server_id=server_id)
+    data.add(bot, __name__, 'region', region, server_id=server_id)
     return response
 
 
