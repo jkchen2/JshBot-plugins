@@ -1,8 +1,9 @@
 import discord
 import urllib.request
 import random
+import logging
 
-from jshbot import utilities, configurations
+from jshbot import utilities, configurations, data
 from jshbot.commands import Command, SubCommands
 from jshbot.exceptions import BotException
 
@@ -91,9 +92,18 @@ async def get_response(
         try:
             await bot.change_status(
                 discord.Game(name=arguments[0]) if arguments[0] else None)
+            data.add(bot, __name__, 'status', arguments[0])
         except Exception as e:
             raise BotException(EXCEPTION, "Failed to update the status.", e=e)
     elif blueprint_index == 4:  # Change avatar
         await change_avatar(bot, arguments[0])
 
     return (response, tts, message_type, extra)
+
+
+async def on_ready(bot):
+    """Checks to see if the status was set previously."""
+    previous_status = data.get(bot, __name__, 'status')
+    if previous_status:
+        await bot.change_status(discord.Game(name=previous_status))
+        logging.debug("Detected old status - setting it now!")
