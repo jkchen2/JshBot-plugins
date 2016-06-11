@@ -23,6 +23,7 @@
 
 import asyncio
 
+from jshbot import utilities
 from jshbot.commands import Command, SubCommands, Shortcuts
 from jshbot.exceptions import BotException
 
@@ -173,7 +174,7 @@ async def get_response(
 
             # In case somebody was looking for the help...
             if len(options) == 0:
-                invoker = bot.get_invoker(server=message.server)
+                invoker = utilities.get_invoker(bot, server=message.server)
                 response += "You didn't use either flag...\n"
                 response += "For help, try `{}help mycommand`".format(invoker)
 
