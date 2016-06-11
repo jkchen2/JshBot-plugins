@@ -447,7 +447,7 @@ async def retrieve_tag(
                     "NSFW sound tags are disabled in this voice channel.")
 
         voice_client = await utilities.join_and_ready(
-            bot, voice_channel, member.server)
+            bot, voice_channel, member.server, is_mod=is_mod)
         value = tag['value'][value_index]
 
         # Check if the url is in the cache
@@ -519,7 +519,9 @@ async def get_response(
             response = "Tag removed."
 
         elif blueprint_index == 3:  # raw
-            tag = get_tag(tag_database, arguments[0])
+            tag = get_tag(
+                tag_database, arguments[0],
+                permissions=(bot, message.server, message.author.id))
             raw_tag = str(tag['value'])
             if len(raw_tag) > 1950 or 'file' in options:
                 await utilities.send_text_as_file(
