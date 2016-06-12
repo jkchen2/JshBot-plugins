@@ -51,9 +51,10 @@ def get_commands():
              'tag. If this is a sound tag, the volume will be applied to all '
              'entries in the tag. The \'private\' option toggles privacy. '
              'Lastly, the NSFW flag can be toggled.'),
-            ('list &', 'list '
-             '(<user name>)', 'Lists all tags. If a '
-             'user name is given, this will list tags created by that user.'),
+            ('list ?file ?user: #', 'list (file) (user <"user name">) '
+             '(<filters>)', 'Lists all tags. If the \'user\' option and user '
+             'name is provided, this narrows down the listing to tags created '
+             'by that user. Any filters provided also narrow down the list.'),
             ('search ^', 'search <terms>',
              'Searches for tag names with the given terms.'),
             ('toggle :^', 'toggle <type> <channel name>', 'Toggles the '
@@ -65,10 +66,10 @@ def get_commands():
             ('tc', 'create {}', '^', 'create <arguments>', '<arguments>'),
             ('stc', 'create {} sound {}', ':^', 'create <"tag name"> sound '
              '<arguments>', '<"tag name"> <arguments>'),
-            ('tr', 'remove {}', '^', 'remove <arguments>', '<arguments>'),
             ('tl', 'list {}', '&', 'list (<arguments>)', '(<arguments>)'),
             ('ts', 'search {}', '^', 'search <arguments>', '<arguments>')),
-        description='Create and recall macros of text and sound.'))
+        description='Create and recall macros of text and sound.',
+        strict_syntax=True))
 
     return commands
 
@@ -94,6 +95,9 @@ async def create_tag(
     if database_name in command.keywords:
         raise BotException(
             EXCEPTION, "That tag name is reserved as a keyword.")
+    if database_name.startswith(tuple(command.keywords)):
+        raise BotException(
+            EXCEPTION, "That tag name starts with a reserved keyword.")
     if len(tag_name) > length_limit:
         raise BotException(
             EXCEPTION, "The tag name cannot be longer than "
@@ -294,7 +298,7 @@ async def edit_tag(bot, tag_database, options, server, user_id):
     return '\n'.join(additions)
 
 
-def list_search_tags(bot, message, blueprint_index, arguments):
+def list_search_tags(bot, message, blueprint_index, options, arguments):
     """Gets a list of the tags given the parameters.
 
     If the message is sent directly, it lists all of the tags that the user
@@ -308,15 +312,31 @@ def list_search_tags(bot, message, blueprint_index, arguments):
         direct = False
         servers = [message.server]
     author = None
+    filter_bits = None
     search = None
     response = ''
 
     # Mark list or search arguments
-    if arguments and blueprint_index == 6:
-        author = data.get_member(
-            bot, arguments, server=message.server, strict=(not direct))
-        response += "Tags by '{}':\n".format(author.name)
-    elif arguments and blueprint_index == 7:
+    if blueprint_index == 6:  # list
+        if 'user' in options:
+            author = data.get_member(
+                bot, options['user'],
+                server=message.server,
+                strict=(not direct))
+            response += "Tags by '{}':\n".format(author.name)
+        if arguments[0]:
+            filter_entries = []
+            for filter_entry in arguments:
+                if filter_entry.lower() not in simple_flag_list:
+                    raise BotException(
+                        EXCEPTION, "'{}' is not a valid filter entry.".format(
+                            filter_entry))
+                filter_entries.append(filter_entry.lower())
+                filter_bits = get_flag_bits(filter_entries)
+            response += "Filtering for {} tags:\n".format(
+                ', '.join(get_flags(filter_bits)))
+
+    else:  # search
         search = cleaned_tag_name(arguments)
         response += "Tags with '{}' in it:\n".format(search)
 
@@ -342,6 +362,9 @@ def list_search_tags(bot, message, blueprint_index, arguments):
                 if author:
                     tags = list(
                         filter(lambda t: t['author'] == author.id, tags))
+                if filter_bits is not None:
+                    tags = list(
+                        filter(lambda t: t['flags'] == filter_bits, tags))
                 elif search:
                     tag_pairs = zip(tag_names, tags)
                     tag_pairs = filter(lambda t: search in t[0], tag_pairs)
@@ -352,7 +375,7 @@ def list_search_tags(bot, message, blueprint_index, arguments):
                     for tag in tags:
                         flags = get_flags(tag['flags'])
                         special = [flag[0] for flag in flags]
-                        if flags:  # Mark special tags
+                        if flags and not filter_bits:  # Mark special tags
                             tag_names.append('[{0}]({1})'.format(
                                 tag['name'], '/'.join(special)))
                         else:  # Just add the name
@@ -535,7 +558,7 @@ async def get_response(
             raw_tag = str(tag['value'])
             if len(raw_tag) > 1950 or 'file' in options:
                 await utilities.send_text_as_file(
-                    message.channel, raw_tag, 'raw')
+                    bot, message.channel, raw_tag, 'raw')
             else:
                 response = '```\n{}```'.format(raw_tag)
 
@@ -551,10 +574,12 @@ async def get_response(
 
         elif blueprint_index in (6, 7):  # list and search
             response = list_search_tags(
-                bot, message, blueprint_index, arguments[0])
-            if len(response) > 1950:
+                bot, message, blueprint_index, options, arguments)
+            if len(response) > 1950 or 'file' in options:
+                response = response.replace('\n# ', '\n\n# ')
                 await utilities.send_text_as_file(
-                    message.channel, response, 'tags')
+                    bot, message.channel, response, 'tags')
+                response = "Here's a file with the tags."
             else:
                 response = '```md\n' + response + '```'
 
@@ -626,10 +651,7 @@ def get_flags(flag_bits, simple=False):
     If simple is set to True, this will use the simple_flag_list instead.
     """
     found_flags = []
-    if simple:
-        specified_flag_list = simple_flag_list
-    else:
-        specified_flag_list = flag_list
+    specified_flag_list = simple_flag_list if simple else flag_list
     for it, flag in enumerate(specified_flag_list):
         if (flag_bits >> it) & 1:
             found_flags.append(flag)
