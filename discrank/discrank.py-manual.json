@@ -1,0 +1,6 @@
+{
+    "order": ["Setting the region"],
+    "entries": {
+        "Setting the region": "You can set the region for a server with `{invoker}lol setregion <region>`.\n\nThe valid region codes are NA (default), BR, EUNE, EUW, JP, KR, LAN, LAS, OCE, RU, and TR. Alternatively, you can also temporarily define a region for a summoner by appending `:<region>` to the end of a summoner name.\n\nSome examples:\n`{invoker}lol summoner hide on bush:kr`\n`{invoker}lol `"
+    }
+}
