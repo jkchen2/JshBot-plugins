@@ -82,7 +82,7 @@ async def get_response(
     if base == 'test':
 
         if blueprint_index == 0:  # order
-            response = "Anarchy!"
+            response = "Anarchy!"*2000
 
         elif blueprint_index == 1:  # shortcut 1
             response = "You reached shortcut 1!"
@@ -210,3 +210,23 @@ async def play_this(bot, server, voice_channel, location, use_file):
     player.volume = volume
     player.start()
     utilities.set_player(bot, server.id, player)
+
+
+bad = ['none', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
+       'nine']
+
+async def on_member_update(bot, before, after):
+    if before.server.id == '98336902637195264':
+        total_online = len(list(filter(
+            lambda m: str(m.status) != 'offline', before.server.members))) - 1
+        previous = data.get(bot, __name__, 'online', default=0)
+        if total_online >= 0 and total_online != previous:
+            channel = data.get_channel(bot, '98336902637195264', before.server)
+            if total_online >= len(bad):
+                remaining = "way too many"
+            else:
+                remaining = bad[total_online]
+            text = "And then there {0} {1}.".format(
+                'was' if total_online == 1 else 'were', remaining)
+            data.add(bot, __name__, 'online', total_online)
+            await bot.edit_channel(channel, topic=text)
