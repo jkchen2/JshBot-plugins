@@ -75,8 +75,7 @@ def get_commands():
         other=('The `[options]` for creating tags is `(private) (sound) '
                '(nsfw)`. The `[edit options]` for editing tags is `(add '
                '<"entry>") (remove <"entry">) (volume <percent>) (private) '
-               '(nsfw)`.'),
-        strict_syntax=True))
+               '(nsfw)`.')))
 
     return commands
 
@@ -229,11 +228,13 @@ async def edit_tag(bot, tag_database, options, server, user_id):
             raise BotException(
                 EXCEPTION, "Cannot change the volume of a text only tag.")
         try:
-            new_volume = float(options['volume'])
+            new_volume = float(options['volume'].strip('%')) / 100
         except ValueError:
-            raise BotException(EXCEPTION, "Volume isn't a valid number.")
+            raise BotException(EXCEPTION, "That volume isn't a valid number.")
         if not (0.1 <= new_volume <= 2.0):
-            raise BotException(EXCEPTION, "New volume must be in [0.1-2.0].")
+            raise BotException(
+                EXCEPTION,
+                "New volume must be between 10% and 200% inclusive.")
         tag['volume'] = new_volume
         additions.append("Volume changed to {:.2f}%.".format(
             new_volume * 100))
