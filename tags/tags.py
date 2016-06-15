@@ -26,12 +26,14 @@ def get_commands():
     commands.append(Command(
         'tag', SubCommands(
             ('create: random ?private ?sound ?nsfw ?complex :+', 'create '
-             '<"tag name"> random ([options]) <"text 1"> <"text 2"> '
-             '("text 3") (...)', 'Creates a tag, but each entry is treated as '
-             'separate. To have spaces in entries, use quotes.'),
+             '<"tag name"> random [options] <"entry 1"> <"entry 2"> '
+             '("entry 3") (...)', 'Creates a tag, but each entry is treated '
+             'as separate. To have spaces in entries, use quotes. The '
+             '`[options]` for creating tags is `(private) (sound) (nsfw)`.'),
             ('create: ?private ?sound ?nsfw ?complex ^', 'create <"tag name"> '
-             '(private) (sound) (nsfw) <tag text>', 'Creates a tag '
-             'with the given options. A private tag can only be called by '
+             '[options] <tag text>', 'Creates a tag with the given options. '
+             'The `[options]` for creating tags is `(private) (sound) '
+             '(nsfw)`. A private tag can only be called by '
              'its owner or bot moderators. Sound tags are played through the '
              'voice channel you are currently in.'),
             ('remove ^', 'remove <tag name>', 'Removes the specified tag. You '
@@ -43,9 +45,10 @@ def get_commands():
             ('info ^', 'info <tag name>', 'Gets basic tag information, like '
              'the author, creation date, number of uses, length, etc.'),
             ('edit: ?set: ?add: ?remove: ?volume: ?private ?nsfw', 'edit '
-             '<"tag name"> (set <"new text">) (add <"entry">) (remove '
-             '<"entry">) (volume <percent>) (private) (nsfw)', 'Modifies the '
-             'given tag with the given options. Note that you cannot set text '
+             '<"tag name"> (set <"new text">) [edit options]', 'Modifies the '
+             'given tag with the given options. The `[edit options]` is `(add '
+             '<"entry">) (remove <"entry">) (volume <percent>) (private) '
+             '(nsfw)`. Note that you cannot set text '
              'for a random tag. If you add an entry to a non-random tag, this '
              'makes it random. If all entries are removed, this deletes the '
              'tag. If this is a sound tag, the volume will be applied to all '
@@ -69,6 +72,10 @@ def get_commands():
             ('tl', 'list {}', '&', 'list (<arguments>)', '(<arguments>)'),
             ('ts', 'search {}', '^', 'search <arguments>', '<arguments>')),
         description='Create and recall macros of text and sound.',
+        other=('The `[options]` for creating tags is `(private) (sound) '
+               '(nsfw)`. The `[edit options]` for editing tags is `(add '
+               '<"entry>") (remove <"entry">) (volume <percent>) (private) '
+               '(nsfw)`.'),
         strict_syntax=True))
 
     return commands
@@ -312,7 +319,7 @@ def list_search_tags(bot, message, blueprint_index, options, arguments):
         direct = False
         servers = [message.server]
     author = None
-    filter_bits = None
+    filter_bits = 0
     search = None
     response = ''
 
@@ -333,11 +340,11 @@ def list_search_tags(bot, message, blueprint_index, options, arguments):
                             filter_entry))
                 filter_entries.append(filter_entry.lower())
                 filter_bits = get_flag_bits(filter_entries)
-            response += "Filtering for {} tags:\n".format(
+            response += "### Filtering for {} tags: ###\n".format(
                 ', '.join(get_flags(filter_bits)))
 
     else:  # search
-        search = cleaned_tag_name(arguments)
+        search = cleaned_tag_name(arguments[0])
         response += "Tags with '{}' in it:\n".format(search)
 
     # Get tags for each given server
@@ -360,11 +367,12 @@ def list_search_tags(bot, message, blueprint_index, options, arguments):
 
                 # Filter tags if necessary
                 if author:
-                    tags = list(
-                        filter(lambda t: t['author'] == author.id, tags))
-                if filter_bits is not None:
-                    tags = list(
-                        filter(lambda t: t['flags'] == filter_bits, tags))
+                    tags = list(filter(
+                        lambda t: t['author'] == author.id, tags))
+                if filter_bits:
+                    tags = list(filter(
+                        lambda t:
+                            t['flags'] & filter_bits == filter_bits, tags))
                 elif search:
                     tag_pairs = zip(tag_names, tags)
                     tag_pairs = filter(lambda t: search in t[0], tag_pairs)
@@ -373,9 +381,9 @@ def list_search_tags(bot, message, blueprint_index, options, arguments):
                 if tags:
                     tag_names = []
                     for tag in tags:
-                        flags = get_flags(tag['flags'])
+                        flags = get_flags(tag['flags'] - filter_bits)
                         special = [flag[0] for flag in flags]
-                        if flags and not filter_bits:  # Mark special tags
+                        if flags:  # Mark special tags
                             tag_names.append('[{0}]({1})'.format(
                                 tag['name'], '/'.join(special)))
                         else:  # Just add the name
@@ -385,13 +393,16 @@ def list_search_tags(bot, message, blueprint_index, options, arguments):
                         letter.upper(), ', '.join(tag_names))
 
             if response_buffer:
-                response += '\n### Tags for {0}: ###\n{1}'.format(
-                    server.name, response_buffer)
+                if len(servers) > 1:
+                    response += '\n### Tags for {0}: ###\n{1}'.format(
+                        server.name, response_buffer)
+                else:
+                    response += response_buffer
             else:
-                response += '\nNo tags match query for {}.\n'.format(
-                        server.name)
+                response += '\nNo tags match query in {}.\n'.format(
+                    server.name)
         else:
-            response += '\nNo tags for {}.\n'.format(server.name)
+            response += '\n{} has no tags.\n'.format(server.name)
 
     return response
 
@@ -459,13 +470,15 @@ async def retrieve_tag(
 
     tag_is_random = 'random' in flags
     if tag_is_random:
-        value_index = int(random.random() * len(tag['value']))
+        value = tag['value'][int(random.random() * len(tag['value']))]
     else:
-        value_index = 0
+        value = tag['value'][0]
     if 'sound' in flags:
         voice_channel = member.voice_channel
         if not voice_channel:  # Check channel mute filters
-            raise BotException(EXCEPTION, "You are not in a voice channel.")
+            raise BotException(
+                EXCEPTION, "This is a sound tag - you are not in a voice "
+                "channel.", value)
         voice_filter = data.get(
             bot, __name__, 'filter', server_id=member.server.id,
             channel_id=voice_channel.id, default=[])
@@ -481,12 +494,11 @@ async def retrieve_tag(
 
         voice_client = await utilities.join_and_ready(
             bot, voice_channel, member.server, is_mod=is_mod)
-        value = tag['value'][value_index]
 
         # Check if the url is in the cache
         file_directory = data.get_from_cache(bot, None, url=value)
         if not file_directory:  # Can't reuse URLs unfortunately
-            if 'my.mixtape.moe/' in value:
+            if 'https://my.mixtape.moe/' in value:
                 download_url = value
             else:
                 try:
@@ -506,11 +518,29 @@ async def retrieve_tag(
         response = ''
 
     else:  # TODO: Add complex tags
-        response = tag['value'][value_index]
+        response = value
 
     tag['last_used'] = int(time.time())
     tag['hits'] += 1
     return (response, 0)
+
+
+def basic_tag_search(tag_database, search, mark_special=True, limit=3):
+    """Searches the tag database for the given term."""
+    search = cleaned_tag_name(search)
+    tag_pairs = list(tag_database.items())
+    matches = []
+    for tag_name, tag in tag_pairs:
+        if search in tag_name:
+            if mark_special and tag['flags']:
+                special = [flag[0] for flag in get_flags(tag['flags'])]
+                matches.append('[{0}]({1})'.format(
+                    tag['name'], '/'.join(special)))
+            else:
+                matches.append(tag['name'])
+            if len(matches) >= limit:
+                break
+    return matches
 
 
 async def get_response(
@@ -630,6 +660,8 @@ async def get_checked_durations(bot, urls):
                     bot, download_url, extension=extension)
                 duration = int(TinyTag.get(file_location).duration)
                 os.remove(file_location)
+        except BotException as e:
+            raise e  # Pass up
         except Exception as e:
             raise BotException(
                 EXCEPTION, "Failed to get duration from a URL.", url, e=e)
@@ -670,20 +702,27 @@ def get_flag_bits(given_flags):
     return flag_value
 
 
-def get_tag(tag_database, tag_name, include_name=False, permissions=None):
+def get_tag(
+        tag_database, tag_name,
+        include_name=False, permissions=None, suggest=True):
     """Gets the tag reference from the tag database.
 
     Throws an exception if the tag is not found.
     Keyword arguments:
-    include_name -- returns a tuple of the tag and the database name
-    permissions -- checks that the user is the tag owner or is a moderator
-        permissions should be a tuple: (bot, server, user_id)
+    include_name -- Returns a tuple of the tag and the database name.
+    permissions -- Checks that the user is the tag owner or is a moderator.
+        Permissions should be a tuple: (bot, server, user_id).
+    suggest -- Attempts to find some tags with that tag name.
     """
     tag_name = cleaned_tag_name(tag_name)
     tag = tag_database.get(tag_name, None)
     if tag is None:
-        # TODO: Add a didyoumean feature
-        raise BotException(EXCEPTION, "Tag '{}' not found.".format(tag_name))
+        pass_in = [EXCEPTION, "Tag '{}' not found.".format(tag_name)]
+        matches = basic_tag_search(tag_database, tag_name)
+        if matches:
+            suggestion = "Did you mean: `{}`".format('`, `'.join(matches))
+            pass_in.append(suggestion)
+        raise BotException(*pass_in)
     if permissions:
         bot, server, user_id = permissions
         if user_id != tag['author'] and not data.is_mod(bot, server, user_id):
