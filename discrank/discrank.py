@@ -14,7 +14,7 @@ from jshbot.commands import Command, SubCommands, Shortcuts
 from jshbot.exceptions import ErrorTypes, BotException
 from jshbot.utilities import future
 
-__version__ = '0.1.5'
+__version__ = '0.1.6'
 EXCEPTION = 'Riot API plugin'
 uses_configuration = True
 
@@ -56,8 +56,8 @@ def get_commands():
             ('blitz', '{}', '^', '<arguments>', '<arguments>')),
         description='Get League of Legends information from the API.',
         other='You can specify the region for a summoner by adding '
-              '\':<region>\' after the name. For example, try\n{invoker}lol '
-              'summoner hide on bush:kr'))
+              '`:<region>` after the name. For example, try\n`{invoker}lol '
+              'summoner hide on bush:kr`'))
 
     return commands
 
@@ -612,6 +612,7 @@ async def get_summoner_information(bot, static, name, region, verbose=False):
 
 def get_formatted_mastery_data(static, champion_data):
     """Gets a nicely formatted line of mastery data."""
+    print(champion_data)
     champion_name = static[1][str(champion_data['championId'])]['name']
     chest = 'Yes' if champion_data['chestGranted'] else 'No'
     if 'lastPlayTime' in champion_data:
@@ -644,6 +645,10 @@ async def get_mastery_table(bot, static, name, region, champion=None):
                 bot, static, summoner['id'], region, champion_id=champion_id)
         except KeyError:
             raise BotException(EXCEPTION, "Champion not found.")
+        if champion_data is None:
+            raise BotException(
+                EXCEPTION, "This summoner has no mastery data for the given "
+                "champion.")
     else:
         champion_data = await get_mastery_wrapper(
             bot, static, summoner['id'], region, top=False)
@@ -657,12 +662,16 @@ async def get_mastery_table(bot, static, name, region, champion=None):
 
     response = '```\n{}\n{}\n'.format(labels, line)
 
+    if not champion_data:
+        raise BotException(EXCEPTION, "This summoner has no mastery data.")
+
     if champion:
         response += get_formatted_mastery_data(static, champion_data)
     else:
         for it in range(10):
-            data = get_formatted_mastery_data(static, champion_data[it])
-            response += '{0: <3}| {1}'.format(it + 1, data)
+            if it < len(champion_data):
+                data = get_formatted_mastery_data(static, champion_data[it])
+                response += '{0: <3}| {1}'.format(it + 1, data)
     return response + '```'
 
 
@@ -821,6 +830,9 @@ async def get_response(
             bot, __name__, 'region',
             server_id=message.server.id, default='na')
     static = data.get(bot, __name__, 'static_data', volatile=True)
+    if static is None:
+        raise BotException(
+            EXCEPTION, "Discrank is not ready yet, please try again later.")
 
     if blueprint_index == 0:  # Get basic summoner information
         response = await get_summoner_information(
