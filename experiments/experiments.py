@@ -216,7 +216,8 @@ bad = ['none', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
        'nine']
 
 async def on_member_update(bot, before, after):
-    if before.server.id == '98336902637195264':
+    if (before.server.id == '98336902637195264' and
+            bot.user.id == '176088256721453056'):
         total_online = len(list(filter(
             lambda m: str(m.status) != 'offline', before.server.members))) - 1
         previous = data.get(bot, __name__, 'online', default=0)
