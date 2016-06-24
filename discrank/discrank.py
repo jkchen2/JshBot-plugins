@@ -312,6 +312,7 @@ def get_kill_participation(match, participant_id, side):
                 participant_kills = stats['kills']
                 participant_kills += stats['assists']
             total_kills += stats['kills']
+    total_kills = 1 if total_kills <= 0 else total_kills
     return '{0:.1f}%'.format(100*participant_kills/total_kills)
 
 
@@ -493,11 +494,14 @@ async def get_match_table(
         champion = static[1][str(champion_id)]['name']
 
         # Get mastery data
-        for champion_mastery in mastery:
-            if champion_mastery['championId'] == champion_id:
-                break
-        mastery_data = "({0[championPoints]}|{0[championLevel]})".format(
-                champion_mastery)
+        if mastery:
+            for champion_mastery in mastery:
+                if champion_mastery['championId'] == champion_id:
+                    break
+            mastery_data = "({0[championPoints]}|{0[championLevel]})".format(
+                    champion_mastery)
+        else:
+            mastery_data = "(No mastery)"
 
         # Format response
         if finished:

@@ -44,6 +44,9 @@ def get_commands():
         elevated_level=3))
 
     commands.append(Command(
+        'test3', SubCommands(('', '', '')), elevated_level=3))
+
+    commands.append(Command(
         'timemasheen', SubCommands(
             ('^', '<dd/mm/yy>', 'Retrieves chat logs on the given day.')),
         description='Carter\'s time machine.', other='Nice meme!'))
@@ -111,11 +114,16 @@ async def get_response(
             response += str(options) + '\n'
             response += str(arguments)
         elif blueprint_index == 2:
+            asyncio.ensure_future(exceptional(bot))
             assert False
         else:
             response = str(options) + '\n'
             response += str(arguments) + '\n'
             response = "Blah blah, empty response."
+
+    elif base == 'test3':
+        raise BotException(EXCEPTION, "Blah", 1, 2, 3, True)
+        response = "Called!"
 
     elif base == 'rip':
         response = get_rip(arguments[0])
@@ -195,6 +203,12 @@ def long_function():
     time.sleep(10)
 
 
+async def exceptional(bot):
+    await asyncio.sleep(5)
+    bot.loop.close()
+    raise Exception('ded')
+
+
 async def play_this(bot, server, voice_channel, location, use_file):
     voice_client = await utilities.join_and_ready(bot, voice_channel, server)
     try:
@@ -208,6 +222,7 @@ async def play_this(bot, server, voice_channel, location, use_file):
     volume = data.get(
         bot, __name__, 'volume', server_id=server.id, default=1.0)
     player.volume = volume
+    print(player.is_done())
     player.start()
     utilities.set_player(bot, server.id, player)
 

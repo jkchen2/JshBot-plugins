@@ -503,7 +503,9 @@ async def retrieve_tag(
                 download_url = value
             else:
                 try:
-                    player = await voice_client.create_ytdl_player(value)
+                    ytdl_options = {'noplaylist': True}
+                    player = await voice_client.create_ytdl_player(
+                        value, ytdl_options=ytdl_options)
                     download_url = player.download_url
                 except Exception as e:
                     logging.warn("youtube_dl failed to download file.")
@@ -643,7 +645,7 @@ async def get_checked_durations(bot, urls):
     If any URL is over the length limit, an exception will be thrown.
     """
     length_limit = bot.configurations[__name__]['max_sound_tag_length']
-    options = {'format': 'worstaudio/worst'}
+    options = {'format': 'worstaudio/worst', 'noplaylist': True}
     downloader = YoutubeDL(options)
     lengths = []
     over_limit = []
