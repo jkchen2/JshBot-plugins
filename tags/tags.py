@@ -476,7 +476,7 @@ async def retrieve_tag(
         value = tag['value'][0]
     if 'sound' in flags:
         voice_channel = member.voice_channel
-        if not voice_channel:  # Check channel mute filters
+        if voice_channel is None:  # Check channel mute filters
             raise BotException(
                 EXCEPTION, "This is a sound tag - you are not in a voice "
                 "channel.", value)
@@ -494,7 +494,7 @@ async def retrieve_tag(
                     "NSFW sound tags are disabled in this voice channel.")
 
         voice_client = await utilities.join_and_ready(
-            bot, voice_channel, member.server, is_mod=is_mod)
+            bot, voice_channel, is_mod=is_mod)
 
         # Check if the url is in the cache
         file_directory = data.get_from_cache(bot, None, url=value)

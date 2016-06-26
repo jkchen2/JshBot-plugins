@@ -210,7 +210,7 @@ async def exceptional(bot):
 
 
 async def play_this(bot, server, voice_channel, location, use_file):
-    voice_client = await utilities.join_and_ready(bot, voice_channel, server)
+    voice_client = await utilities.join_and_ready(bot, voice_channel)
     try:
         if use_file:
             player = voice_client.create_ffmpeg_player(
