@@ -61,8 +61,8 @@ def get_commands():
             ('search ^', 'search <terms>',
              'Searches for tag names with the given terms.'),
             ('toggle :^', 'toggle <type> <channel name>', 'Toggles the '
-             'channel\'s tag filter settings. <type> must be "all" or "nsfw". '
-             'The channel can be either a text or voice channel.'),
+             'channel\'s tag filter settings. <type> must be "all", "sound", '
+             'or "nsfw". The channel can be either a text or voice channel.'),
             ('^', '<tag name>', 'Retrieves the given tag.')),
         shortcuts=Shortcuts(
             ('t', '{}', '^', '<arguments>', '<arguments>'),
@@ -414,12 +414,14 @@ def toggle_channel_filters(bot, server, user_id, flag, channel_name):
         raise BotException(
             EXCEPTION, "Only moderators can change channel tag filters.")
     flag = flag.lower()
-    valid_types = ('all', 'nsfw')
+    valid_types = ('all', 'nsfw', 'sound')
     if flag not in valid_types:
         raise BotException(
             EXCEPTION, "Invalid type. Type must be one of: {}.".format(
                 ', '.join(valid_types)))
     channel = data.get_channel(bot, channel_name, server)
+    if str(channel.type) == 'voice' and flag == 'sound':
+        flag = 'all'  # Prevents "sound sound tags..."
     channel_filter = data.get(
         bot, __name__, 'filter', server_id=server.id,
         channel_id=channel.id, default=[], create=True)
@@ -463,11 +465,14 @@ async def retrieve_tag(
         if 'all' in channel_filter:
             raise BotException(
                 EXCEPTION, "Tags are disabled in this channel.")
-        elif 'nsfw' in flags and 'nsfw' in channel_filter:
-            raise BotException(
-                EXCEPTION, "NSFW tags are disabled in this channel.")
         elif 'private' in flags and member.id != tag['author']:
             raise BotException(EXCEPTION, "This tag is private.")
+        for restriction in channel_filter:
+            if restriction in flags:
+                flag_name = flag_list[simple_flag_list.index(restriction)]
+                raise BotException(
+                    EXCEPTION, "{} tags are disabled in this channel.".format(
+                        flag_name))
 
     tag_is_random = 'random' in flags
     if tag_is_random:
@@ -488,10 +493,12 @@ async def retrieve_tag(
                 raise BotException(
                     EXCEPTION,
                     "Sound tags are disabled in this voice channel.")
-            elif 'nsfw' in flags and 'nsfw' in voice_filter:
-                raise BotException(
-                    EXCEPTION,
-                    "NSFW sound tags are disabled in this voice channel.")
+            for restriction in voice_filter:
+                if restriction in flags:
+                    flag_name = flag_list[simple_flag_list.index(restriction)]
+                    raise BotException(
+                        EXCEPTION, "{} sound tags are disabled in this voice "
+                        "channel.".format(flag_name))
 
         voice_client = await utilities.join_and_ready(
             bot, voice_channel, is_mod=is_mod)
