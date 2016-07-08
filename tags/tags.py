@@ -616,7 +616,8 @@ async def get_response(
             response = list_search_tags(
                 bot, message, blueprint_index, options, arguments)
             if len(response) > 1950 or 'file' in options:
-                response = response.replace('\n# ', '\n\n# ')
+                response = response.replace('\n# ', '\r\n\r\n# ')
+                response = response.replace(' #\n', ' #\r\n')
                 await utilities.send_text_as_file(
                     bot, message.channel, response, 'tags')
                 response = "Here's a file with the tags."
