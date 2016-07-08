@@ -14,7 +14,7 @@ from jshbot.commands import Command, SubCommands, Shortcuts
 from jshbot.exceptions import ErrorTypes, BotException
 from jshbot.utilities import future
 
-__version__ = '0.1.6'
+__version__ = '0.1.7'
 EXCEPTION = 'Riot API plugin'
 uses_configuration = True
 
@@ -386,36 +386,43 @@ async def get_match_table(
             minutes, seconds, '' if finished else 'Current ')
         # Game type
         response += 'Game Type: {}\n\n'.format(game)
+        team_responses = []  # Built up for each team
+        use_full_width = False
+        table_template = (
+            '{{0:{}<16}} {{1: >4}} | {{2: <13}}| {{3: <22}}| '
+            '{{4: <9}}| {{5: <9}}|\n')
+        guide_template = (
+            '  {} Rank | Champion     | '
+            'KDA                   | Spell 1  | Spell 2  |\n'
+            ' -{}------|--------------|-'
+            '----------------------|----------|----------|\n')
 
         # Loop through each team
         for team in (100, 200):
+            team_response = []  # Current team response
 
             # Team
-            response += '{} Team'.format(
-                    'Blue' if team == 100 else 'Red')
+            team_response.append(
+                '{} Team'.format('Blue' if team == 100 else 'Red'))
 
             # Get bans
             try:
                 bans = "{0}, {1}, {2}".format(
                         *get_bans(static, match, team, finished))
-                response += ' -- Bans [{}]'.format(bans)
+                team_response[0] += ' -- Bans [{}]'.format(bans)
             except:
                 logging.warn("No bans.")
 
             # Add game won or lost
             if finished:
                 status = 'WON' if team == winning_team else 'LOST'
-                response += ' [{}]\n'.format(status)
+                team_response[0] += ' [{}]\n'.format(status)
             else:
-                response += '\n'
+                team_response[0] += '\n'
 
             # Loop through each participant on the team
-            response += ('  Summoner         Rank | Champion     | '
-                         'KDA                   | Spell 1  | Spell 2  |\n'
-                         '------------------------|--------------|-'
-                         '----------------------|----------|----------|\n')
             for index, member in enumerate(match['participants']):
-                if member['teamId'] != team:  # Continue
+                if member['teamId'] != team:  # Wrong team
                     continue
 
                 # Get summoner name
@@ -426,6 +433,12 @@ async def get_match_table(
                 else:
                     summoner_name = member['summonerName']
                     summoner_id = str(member['summonerId'])
+                print(summoner_name)
+                try:
+                    summoner_name.encode('ascii')
+                except UnicodeEncodeError:  # Non-ascii detected
+                    use_full_width = True
+                    print("Using full width")
 
                 # Get summoner rank
                 if summoner_id in league_data:
@@ -456,17 +469,43 @@ async def get_match_table(
                         region)
 
                 # Highlight summoner if this is the one we're looking for
-                if index == participant['participantId'] - 1:
-                    response += '+ '
-                else:
-                    response += '  '
+                is_target = index == participant['participantId'] - 1
 
                 # Add champion name, kda, and spells
-                response += ('{0: <17}{1: >4} | {2: <13}| {3: <22}| {4: <9}| '
-                             '{5: <9}|\n').format(
-                                 summoner_name, rank, champion,
-                                 kda, spell1, spell2)
+                team_response.append([
+                    is_target, summoner_name, rank,
+                    champion, kda, spell1, spell2])
 
+            team_responses.append(team_response)
+
+        # Append to response
+        if use_full_width:
+            space, hyphen = ('　', '－')
+            guide_text = 'Ｓｕｍｍｏｎｅｒ'
+        else:
+            space, hyphen = (' ', '-')
+            guide_text = 'Summoner'
+
+        guide_template = guide_template.format(guide_text + space*8, hyphen*16)
+        table_template = table_template.format(space)
+
+        for team_response in team_responses:
+            response += team_response[0] + guide_template
+            for player_data in team_response[1:]:
+                response += '+ ' if player_data[0] else '  '  # highlight
+
+                if use_full_width:  # Convert to ideographic width
+                    new_name = ''
+                    for character in player_data[1]:
+                        if character.isalnum() and ord(character) < 128:
+                            new_name += chr(ord(character) + 65248)
+                        elif character == ' ':
+                            new_name += space
+                        else:
+                            new_name += character
+                    player_data[1] = new_name
+
+                response += table_template.format(*player_data[1:])
             response += '\n'
 
         response += '\n```\n'
