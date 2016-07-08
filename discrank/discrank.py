@@ -433,12 +433,10 @@ async def get_match_table(
                 else:
                     summoner_name = member['summonerName']
                     summoner_id = str(member['summonerId'])
-                print(summoner_name)
                 try:
                     summoner_name.encode('ascii')
                 except UnicodeEncodeError:  # Non-ascii detected
                     use_full_width = True
-                    print("Using full width")
 
                 # Get summoner rank
                 if summoner_id in league_data:
