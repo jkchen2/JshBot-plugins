@@ -10,13 +10,13 @@ import youtube_dl
 
 import datetime
 
-from jshbot import data, utilities
+from jshbot import data, utilities, configurations
 from jshbot.commands import Command, SubCommands, Shortcuts
 from jshbot.exceptions import BotException
 
 __version__ = '¯\_(ツ)_/¯'
 EXCEPTION = 'Experiments'
-uses_configuration = False
+uses_configuration = True
 
 
 def get_commands():
@@ -231,6 +231,9 @@ bad = ['none', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
        'nine']
 
 async def on_member_update(bot, before, after):
+    use_changer = configurations.get(bot, __name__, 'use_channel_change')
+    if not use_changer:
+        return
     if (before.server.id == '98336902637195264' and
             bot.user.id == '176088256721453056'):
         total_online = len(list(filter(
