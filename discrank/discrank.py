@@ -970,6 +970,7 @@ async def on_ready(bot):
         "100": "Bilgewater",
         "300": "Legend of the Poro King",
         "313": "Bilgewater ARAM",
+        "317": "Definitely Not Dominion",
         "400": "Team Builder",
         "410": "Dynamic Queue",
         "CUSTOM": "0",
@@ -1006,6 +1007,7 @@ async def on_ready(bot):
         "KING_PORO_5x5": "300",
         "COUNTER_PICK": "310",
         "BILGEWATER_5x5": "313",
+        "DEFINITELY_NOT_DOMINION_5x5": "317",
         "TEAM_BUILDER_DRAFT_UNRANKED_5x5": "400",
         "TEAM_BUILDER_DRAFT_RANKED_5x5": "410"
     }
