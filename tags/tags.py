@@ -18,6 +18,7 @@ uses_configuration = True
 
 flag_list = ['Sound', 'Private', 'NSFW', 'Complex', 'Random']
 simple_flag_list = list(map(str.lower, flag_list))
+use_global_tags, replace_commands = False, False  # Set by on_ready
 
 
 def get_commands():
@@ -319,6 +320,8 @@ def list_search_tags(bot, message, blueprint_index, options, arguments):
     else:
         direct = False
         servers = [message.server]
+    if use_global_tags:  # Only need one loop
+        servers = servers[0:1]
     author = None
     filter_bits = 0
     search = None
@@ -350,9 +353,13 @@ def list_search_tags(bot, message, blueprint_index, options, arguments):
 
     # Get tags for each given server
     for server in servers:
-        tag_database = data.get(
-            bot, __name__, 'tags', server_id=server.id,
-            default={}, create=True)
+        if use_global_tags:
+            tag_database = data.get(
+                bot, __name__, 'tags', default={}, create=True)
+        else:
+            tag_database = data.get(
+                bot, __name__, 'tags', server_id=server.id,
+                default={}, create=True)
         current_tags = sorted(list(tag_database.items()))
 
         if current_tags:
@@ -396,14 +403,16 @@ def list_search_tags(bot, message, blueprint_index, options, arguments):
             if response_buffer:
                 if len(servers) > 1:
                     response += '\n### Tags for {0}: ###\n{1}'.format(
-                        server.name, response_buffer)
+                        'the bot' if use_global_tags else server.name,
+                        response_buffer)
                 else:
                     response += response_buffer
             else:
                 response += '\nNo tags match query in {}.\n'.format(
-                    server.name)
+                    'database' if use_global_tags else server.name)
         else:
-            response += '\n{} has no tags.\n'.format(server.name)
+            response += '\n{} has no tags.\n'.format(
+                'database' if use_global_tags else server.name)
 
     return response
 
@@ -532,7 +541,7 @@ async def retrieve_tag(
 
     tag['last_used'] = int(time.time())
     tag['hits'] += 1
-    return (response, 0)
+    return (response, 4 if replace_commands else 0)
 
 
 def basic_tag_search(tag_database, search, mark_special=True, limit=3):
@@ -561,8 +570,9 @@ async def get_response(
     if base == 'tag':
 
         if not message.channel.is_private:
+            server_id = None if use_global_tags else message.server.id
             tag_database = data.get(
-                bot, __name__, 'tags', server_id=message.server.id,
+                bot, __name__, 'tags', server_id=server_id,
                 default={}, create=True, save=True)
 
         elif blueprint_index not in (6, 7):
@@ -755,3 +765,10 @@ def cleaned_tag_name(name):
         if 48 <= num <= 57 or 65 <= num <= 90 or 97 <= num <= 122:
             cleaned_list.append(char)
     return ''.join(cleaned_list).lower()
+
+
+async def on_ready(bot):
+    """Sets up the configuration globals"""
+    global use_global_tags, replace_commands
+    use_global_tags = configurations.get(bot, __name__, 'global_tags')
+    replace_commands = configurations.get(bot, __name__, 'replace_commands')
