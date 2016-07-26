@@ -94,8 +94,15 @@ async def get_response(
             response = "You reached shortcut 2!"
 
         elif blueprint_index == 3:  # that's pretty aesthetic mate
-            text = arguments[0].replace(' ', '').lower()
-            response = ' '.join([char for char in text])
+            response = ''
+            for character in arguments[0]:
+                if character.isalnum() and ord(character) < 128:
+                    response += chr(ord(character) + 65248)
+                elif character == ' ':
+                    response += '　'
+                else:
+                    response += character
+            message_type = 4
             await utilities.notify_owners(
                 bot, "Somebody made {} aesthetic.".format(arguments[0]))
 
@@ -114,7 +121,7 @@ async def get_response(
             response += str(options) + '\n'
             response += str(arguments)
         elif blueprint_index == 2:
-            asyncio.ensure_future(exceptional(bot))
+            # asyncio.ensure_future(exceptional(bot))
             assert False
         else:
             response = str(options) + '\n'
@@ -205,7 +212,7 @@ def long_function():
 
 async def exceptional(bot):
     await asyncio.sleep(5)
-    bot.loop.close()
+    # bot.loop.close()
     raise Exception('ded')
 
 
@@ -249,3 +256,6 @@ async def on_member_update(bot, before, after):
                 'was' if total_online == 1 else 'were', remaining)
             data.add(bot, __name__, 'online', total_online)
             await bot.edit_channel(channel, topic=text)
+
+async def on_channel_update(bot, before, after):
+    print("Some channel got updated")
