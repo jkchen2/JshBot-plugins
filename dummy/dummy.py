@@ -23,7 +23,7 @@
 
 import asyncio
 
-from jshbot import utilities
+from jshbot import utilities, configurations
 from jshbot.commands import Command, SubCommands, Shortcuts
 from jshbot.exceptions import BotException
 
@@ -224,7 +224,7 @@ async def get_response(
                     response += ("Your input was not in the list of keywords. "
                                  "They are: {}\n").format(keywords)
 
-            message_type == 2  # Self-destruct
+            message_type = 2  # Self-destruct
             extra = 15  # 15 seconds
             response += "This message will self destruct in 15 seconds."
 
@@ -280,6 +280,7 @@ async def on_ready(bot):
     print("on_ready was called from dummy.py!")
 
 async def on_message_edit(bot, before, after):
-    if before.author != bot.user:
+    if (before.author != bot.user and
+            configurations.get(bot, __name__, key='show_edited_messages')):
         print("Somebody edited their message from '{0}' to '{1}'.".format(
             before.content, after.content))
