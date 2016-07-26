@@ -1,4 +1,6 @@
 {
+    "global_tags": false,
+    "replace_commands": false,
     "max_tag_name_length": 30,
     "max_tags_per_server": 500,
     "max_sound_tag_length": 30
