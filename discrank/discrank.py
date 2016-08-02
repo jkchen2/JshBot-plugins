@@ -51,8 +51,7 @@ def get_commands():
         shortcuts=Shortcuts(
             ('summoner', 'summoner {}', '^', 'summoner <summoner name>',
              '<summoner name>'),
-            ('match', 'match {}', '^', 'match <summoner name>',
-             '<summoner name>'),
+            ('match', 'match {}', '^', 'match <arguments>', '<arguments>'),
             ('mastery', 'mastery {}', '^', 'mastery <summoner name>',
              '<summoner name>'),
             ('challenge', 'challenge {} {} {} {}', '::::', 'challenge '
@@ -325,7 +324,9 @@ async def _format_match_data(
             # Get information without using game data
             players = blue_players if player['teamId'] == 100 else red_players
             identity_key = str(player['championId'])
-            identity = identities[identity_key]
+            identity = identities.get(identity_key, [
+                '[Bot]', 0,
+                static[1].get(identity_key, {}).get('name', 'Unknown'), ''])
 
             # Get spells and KDA with match details
             spell_ids = [str(player['spell1Id']), str(player['spell2Id'])]
@@ -688,8 +689,6 @@ async def get_match_history_wrapper(bot, static, name, region):
     games = await _get_recent_games(static, summoner['id'], region)
     if not games:
         raise BotException(EXCEPTION, "No recent games found.")
-
-    bot.extra = games
 
     guide_template = (
         '#  | Game Type               | Champion      | '
@@ -1184,4 +1183,4 @@ async def on_ready(bot):
 
     static_data = [watcher, champions, spells, modes, regions, platforms]
     data.add(bot, __name__, 'static_data', static_data, volatile=True)
-    print("Discrank is ready!")
+    print("discrank.py is ready!")
