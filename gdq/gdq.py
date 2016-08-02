@@ -32,7 +32,7 @@ def get_commands():
             ('notify ?channel ^', 'notify (channel) <game title>', 'Sends a '
              'message to either the user or the channel for the given game '
              'when it is about to be streamed (approximately 10 minutes).')),
-        description='Games Done Quick for Discord.'))
+        description='Games Done Quick for Discord.', group='service'))
 
     return commands
 

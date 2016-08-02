@@ -30,7 +30,7 @@ def get_commands():
             ('pick', 'pick {}', '^', 'pick <arguments>', '<arguments>'),
             ('flip', 'flip {}', '&', 'flip (<number of flips>)',
              '(<number of flips>)')),
-        description='Get random stuff.'))
+        description='Get random stuff.', group='tools'))
 
     return new_commands
 

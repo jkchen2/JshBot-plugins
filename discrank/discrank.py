@@ -62,7 +62,7 @@ def get_commands():
         description='Get League of Legends information from the API.',
         other='You can specify the region for a summoner by adding '
               '`:<region>` after the name. For example, try\n`{invoker}lol '
-              'summoner hide on bush:kr`'))
+              'summoner hide on bush:kr`', group='game data'))
 
     return commands
 

@@ -24,7 +24,8 @@ def get_commands():
             ('status &', 'status <text>', 'Changes the status to the text.'),
             ('avatar &', 'avatar <url>', 'Changes the avatar to the URL.')),
         description='Change simple bot stuff, like the avatar and status.',
-        other='Only bot moderators can use these commands', elevated_level=3))
+        other='Only bot moderators can use these commands', elevated_level=3,
+        group='bot utilities'))
 
     return commands
 

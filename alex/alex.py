@@ -21,11 +21,11 @@ def get_commands():
     new_commands.append(Command(
         'alex', SubCommands(
             ('^', '<input>', 'Criticizes your input.')),
-        description='AlexJS for Discord.'))
+        description='AlexJS for Discord.', group='memes'))
     new_commands.append(Command(
         'alexify', SubCommands(
             (':&', '<first> (second)', 'Makes a suggestion.')),
-        description='Alexify a word.'))
+        description='Alexify a word.', group='memes'))
 
     return new_commands
 

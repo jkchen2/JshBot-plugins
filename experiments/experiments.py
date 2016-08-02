@@ -7,6 +7,7 @@ import random
 import time
 import logging
 import youtube_dl
+import subprocess
 
 import datetime
 
@@ -17,6 +18,8 @@ from jshbot.exceptions import BotException
 __version__ = '¯\_(ツ)_/¯'
 EXCEPTION = 'Experiments'
 uses_configuration = True
+
+print("Loaded experiments")
 
 
 def get_commands():
@@ -30,7 +33,8 @@ def get_commands():
              'function. Up to you, really.')),
         shortcuts=Shortcuts(
             ('short1', 'shortcutone', '', 'shortcutone', '')),
-        description='Testing commands.', elevated_level=3, hidden=True))
+        description='Testing commands.', elevated_level=3, hidden=True,
+        group='testing'))
 
     commands.append(Command(
         'test2', SubCommands(
@@ -41,38 +45,41 @@ def get_commands():
             ('junk stuff', 'junk stuff', 'Even more...'),
             ('final test please', 'final test please', 'blargh')),
         description='Testing commands 2: Electric Boogaloo.',
-        elevated_level=3))
+        elevated_level=3, group='testing'))
 
     commands.append(Command(
-        'test3', SubCommands(('', '', '')), elevated_level=3))
+        'test3', SubCommands(('', '', '')), elevated_level=3, group='testing'))
 
     commands.append(Command(
         'timemasheen', SubCommands(
             ('^', '<dd/mm/yy>', 'Retrieves chat logs on the given day.')),
-        description='Carter\'s time machine.', other='Nice meme!'))
+        description='Carter\'s time machine.', other='Nice meme!',
+        group='testing'))
 
     commands.append(Command(
         'play', SubCommands(
             ('?file ^', '(file) <url or file>',
              'Plays the given URL or file.')),
-        description='Plays stuff using youtube-dl. Neat.', allow_direct=False))
+        description='Plays stuff using youtube-dl. Neat.', allow_direct=False,
+        group='testing'))
 
     commands.append(Command(
         'volume', SubCommands(
             ('&', '<volume>', 'Sets the volume of the experiments player.')),
         shortcuts=Shortcuts(
             ('volumeshortcut', '{}', '^', '<volume>', '<volume>')),
-        other='Volume must be between 0.1 and 2.0', allow_direct=False))
+        other='Volume must be between 0.1 and 2.0', allow_direct=False,
+        group='testing'))
 
     commands.append(Command(
-        'rip', SubCommands(('^', '<thing>', 'Rips a thing.'))))
+        'rip', SubCommands(('^', '<thing>', 'Rips a thing.')), group='memes'))
 
     commands.append(Command(
         'nuke', SubCommands(
             ('^', '<number of messages>', 'Deletes the specified number of '
              'messages, including the authoring message.')),
         description='Deletes messages.', other='Be careful with this!',
-        elevated_level=1, allow_direct=False))
+        elevated_level=1, allow_direct=False, group='testing'))
 
     return commands
 
@@ -256,6 +263,3 @@ async def on_member_update(bot, before, after):
                 'was' if total_online == 1 else 'were', remaining)
             data.add(bot, __name__, 'online', total_online)
             await bot.edit_channel(channel, topic=text)
-
-async def on_channel_update(bot, before, after):
-    print("Some channel got updated")

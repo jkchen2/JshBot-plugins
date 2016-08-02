@@ -69,7 +69,7 @@ def get_commands():
               'level of 2 would mean only server owners or above can use the '
               'command, and a level of 3 would restrict the command to only '
               'the bot owners.',
-        elevated_level=1))
+        elevated_level=1, group='demo'))
 
     commands.append(Command(
         'myothercommand', SubCommands(
@@ -87,7 +87,7 @@ def get_commands():
               'permissions level, any user can still execute the command. '
               'Users still will not be able to see the specific help for this '
               'command, though. Lastly, this command is disabled in DMs.',
-        hidden=True, allow_direct=False))
+        hidden=True, allow_direct=False, group='demo'))
 
     commands.append(Command(
         'notify', SubCommands(('^', '<text>', 'Notify the owners!')),

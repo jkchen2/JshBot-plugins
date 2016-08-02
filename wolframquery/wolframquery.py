@@ -23,7 +23,7 @@ def get_commands():
         shortcuts=Shortcuts(
             ('wa', '{}', '^', '<arguments>', '<arguments>')),
         description='Wolfram|Alpha integration.',
-        other='API calls are limited. Please use responsibly!'))
+        other='API calls are limited. Please use responsibly!', group='tools'))
 
     return commands
 
@@ -150,4 +150,4 @@ async def on_ready(bot):
     client = wolframalpha.Client(
         configurations.get(bot, __name__, 'api_key'))
     data.add(bot, __name__, 'client', client, volatile=True)
-    await async_query(client, 'python')  # Test appid
+    # await async_query(client, 'python')  # Test appid

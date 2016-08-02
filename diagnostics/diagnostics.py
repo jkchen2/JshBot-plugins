@@ -34,7 +34,7 @@ def get_commands():
     commands = []
     commands.append(Command(
         'diagnose', SubCommands(('', '', ''), ('stop', '', '')),
-        elevated_level=3, hidden=True))
+        elevated_level=3, hidden=True, group='testing'))
     return commands
 
 
@@ -51,6 +51,8 @@ async def get_response(
         message_type = 3
         looping = True
     else:
+        if not looping:
+            raise BotException(EXCEPTION, "No diagnostics running.")
         response = "Stopping diagnostics."
         looping = False
 

@@ -27,7 +27,8 @@ def get_commands():
              'regex pattern.')),
         shortcuts=Shortcuts(
             ('sb', '{}', '^', '<arguments>', '<arguments>')),
-        description='Selfbot mode helper commands.', elevated_level=3))
+        description='Selfbot mode helper commands.', elevated_level=3,
+        group='selfbot'))
 
     new_commands.append(Command(
         'texttools', SubCommands(
@@ -44,7 +45,8 @@ def get_commands():
             ('invert', 'invert {}', '^', 'invert <text>', '<text>'),
             ('aesthetic', 'aesthetic {}', '^', 'aesthetic <text>', '<text>'),
             ('cursive', 'cursive {}', '^', 'cursive <text>', '<text>')),
-        description='Annoy People: the Plugin', elevated_level=3))
+        description='Annoy People: the Plugin', elevated_level=3,
+        group='selfbot'))
 
     return new_commands
 

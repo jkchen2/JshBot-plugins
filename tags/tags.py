@@ -76,7 +76,7 @@ def get_commands():
         other=('The `[options]` for creating tags is `(private) (sound) '
                '(nsfw)`. The `[edit options]` for editing tags is `(add '
                '<"entry>") (remove <"entry">) (volume <percent>) (private) '
-               '(nsfw)`.')))
+               '(nsfw)`.'), group='chat tools'))
 
     return commands
 
