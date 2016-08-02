@@ -202,7 +202,7 @@ async def _format_match_data(
         match['spectate'] = spectate_url.format(region, match_data['gameId'])
         match['finished'] = False
         match['game_mode'] = static[3].get(
-            str(match_data['gameQueueConfigId']), 'Unknown')
+            str(match_data.get('gameQueueConfigId', 0)), 'Unknown')
         match['timestamp'] = match_data['gameStartTime']
         length = match_data['gameLength'] + 180
         match['game_time'] = '{0}:{1:02d}'.format(
