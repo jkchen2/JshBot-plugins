@@ -116,10 +116,27 @@ def get_number(bound, other_bound):
     return '**Result:** {}'.format(result)
 
 
-def get_flip():
+def get_flip(flips):
     """Flips a coin."""
-    return 'Flipped **{0}!** {1}'.format(
-        *random.choice((('Heads', 'ⓗ'), ('Tails', 'ⓣ'))))
+    if flips == '':
+        return 'Flipped **{0}!** {1}'.format(
+            *random.choice((('Heads', 'ⓗ'), ('Tails', 'ⓣ'))))
+    else:
+        try:
+            flips = int(flips)
+            assert 2 <= flips <= 100
+        except:
+            raise BotException(EXCEPTION, "Invalid number of flips. [2-100]")
+        results = [random.choice(('ⓗ', 'ⓣ')) for number in range(flips)]
+        heads_count = len([result for result in results if result == 'ⓗ'])
+        tails_count = flips - heads_count
+        heads_percent = 100 * heads_count / flips
+        tails_percent = 100 - heads_percent
+        return (
+            '**Results:** {0}\n**Heads:** {1} ({2:.2f}%)\n'
+            '**Tails:** {3} ({4:.2f}%)'.format(
+                ', '.join(results), heads_count, heads_percent,
+                tails_count, tails_percent))
 
 
 async def get_random_tag(bot, message):
@@ -145,7 +162,7 @@ async def get_response(
     elif blueprint_index == 3:  # 1-100 number
         response = get_number(1, 100)
     elif blueprint_index == 4:  # Coin flip
-        response = get_flip()
+        response = get_flip(arguments[0])
     elif blueprint_index == 5:  # random.random()
         response = random.random()
     elif blueprint_index == 5:  # Tag (not finished yet)
