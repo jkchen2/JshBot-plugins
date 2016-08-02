@@ -12,18 +12,18 @@ def get_commands():
 
     new_commands.append(Command(
         'random', SubCommands(
+            (' ', ' ', 'Gets a random float [0.0-1.0)'),
             ('roll &', 'roll (<specifier>)', 'Rolls a die based on the '
              'specifier, which follows the D&D dice rolling syntax (xdy). If '
              'no specifier is given, this rolls a regular 6-sided die.'),
             ('pick :+', 'pick <"option 1"> <"option 2"> (<"option 3">) (...) ',
              'Picks an option. Items must be wrapped in quotes if they have '
              'spaces in them.'),
+            ('number', 'number', 'Gets a random number from 1 to 100.'),
             ('number :&', 'number <lower bound> (upper bound)', 'Gets a '
              'random number from 0 to the lower bound, or between the bounds '
              'if two are given.'),
-            ('number', 'number', 'Gets a random number from 1 to 100.'),
-            ('flip &', 'flip (<number of flips>)', 'Flips the coin'),
-            (' ', ' ', 'Gets a random float [0.0-1.0)')),
+            ('flip &', 'flip (<number of flips>)', 'Flips the coin')),
         # ('?sound tag', '(sound) tag', 'Retrieves a random tag.')),
         shortcuts=Shortcuts(
             ('roll', 'roll {}', '&', 'roll (<specifier>)', '(<specifier>)'),
@@ -153,19 +153,19 @@ async def get_response(
         keywords, cleaned_content):
     response, tts, message_type, extra = ('', False, 0, None)
 
-    if blueprint_index == 0:  # Roll
+    if blueprint_index == 0:  # random.random()
+        response = random.random()
+    elif blueprint_index == 1:  # Roll
         response = get_roll(arguments[0])
-    elif blueprint_index == 1:  # Pick
+    elif blueprint_index == 2:  # Pick
         response = pick_choice(arguments)
-    elif blueprint_index == 2:  # Number with bounds
-        response = get_number(*arguments)
     elif blueprint_index == 3:  # 1-100 number
         response = get_number(1, 100)
-    elif blueprint_index == 4:  # Coin flip
+    elif blueprint_index == 4:  # Number with bounds
+        response = get_number(*arguments)
+    elif blueprint_index == 5:  # Coin flip
         response = get_flip(arguments[0])
-    elif blueprint_index == 5:  # random.random()
-        response = random.random()
-    elif blueprint_index == 5:  # Tag (not finished yet)
+    elif blueprint_index == 6:  # Tag (not finished yet)
         response = await get_random_tag(bot)
 
     return (response, tts, message_type, extra)
