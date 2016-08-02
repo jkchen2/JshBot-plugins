@@ -158,7 +158,7 @@ async def get_response(
     elif blueprint_index == 1:  # Pick
         response = pick_choice(arguments)
     elif blueprint_index == 2:  # Number with bounds
-        response = get_number(arguments)
+        response = get_number(*arguments)
     elif blueprint_index == 3:  # 1-100 number
         response = get_number(1, 100)
     elif blueprint_index == 4:  # Coin flip
