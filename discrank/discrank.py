@@ -293,7 +293,7 @@ async def _format_match_data(
         champion_ids = [match_data['championId']]
         champions = [static[1].get(str(
             match_data['championId']), {}).get('name', 'Unknown')]
-        for player in match_data['fellowPlayers']:
+        for player in match_data.get('fellowPlayers', []):
             player_ids.append(player['summonerId'])
             game_teams.append(player['teamId'])
             champion_ids.append(player['championId'])
