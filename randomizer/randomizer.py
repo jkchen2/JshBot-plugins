@@ -63,8 +63,7 @@ def get_roll(specifier):
             rolls = int(rolls)
             assert 1 <= rolls <= 100
         except:
-            raise BotException(
-                EXCEPTION, "Invalid roll number. [1-100]")
+            raise BotException(EXCEPTION, "Invalid roll number. [1-100]")
     else:
         rolls = 1
 
@@ -73,8 +72,7 @@ def get_roll(specifier):
             sides = int(sides)
             assert 2 <= sides <= 100
         except:
-            raise BotException(
-                EXCEPTION, "Invalid sides. [2-100]")
+            raise BotException(EXCEPTION, "Invalid sides. [2-100]")
     else:
         raise BotException(EXCEPTION, "No die sides specified. [2-100]")
 

@@ -70,9 +70,7 @@ async def get_response(
                 sieve = lambda x: bool(pattern.search(x.content))
             matched_messages = await filter_messages(
                 bot, channel, cutoff=1, sieve=sieve)
-            print(matched_messages)
             if matched_messages:
-                print(matched_messages[0].content)
                 match_result = pattern.search(matched_messages[0].content)
                 if match_result is None:
                     raise BotException(EXCEPTION, "No language found.")
@@ -162,7 +160,6 @@ async def on_ready(bot):
             "；＇，．／{}|：\"<>？　",
             "𝒶𝒷𝒸𝒹𝑒𝒻𝑔𝒽𝒾𝒿𝓀𝓁𝓂𝓃𝑜𝓅𝓆𝓇𝓈𝓉𝓊𝓋𝓌𝓍𝓎𝓏𝒜𝐵𝒞𝒟𝐸𝐹𝒢𝐻𝐼𝒥𝒦𝐿𝑀𝒩𝒪𝒫𝒬𝑅𝒮𝒯𝒰𝒱𝒲𝒳𝒴𝒵"
             "𝟣𝟤𝟥𝟦𝟧𝟨𝟩𝟪𝟫𝟢!@#$%^&*()_+-=`~[]\\;',./{}|:\"<>? "]
-        bot.extra = changed_tables
         translation_tables = [  # WHY
             str.maketrans(base_table, changed_table)
             for changed_table in changed_tables
