@@ -131,7 +131,6 @@ async def _get_league(static, summoner_ids, region):
             print("Get league is hitting cooldown")
             api_cooldown()
         elif e == error_404:
-            logging.warn("Summoner has not played ranked.")
             return {}
         else:
             raise BotException(
@@ -645,9 +644,12 @@ def _get_formatted_match_table(match, verbose=False):
         # Get team and summoner
         team = match['teams'][
             match['invoker_summoner_team'].lower()]['players']
-        player = [
-            player for player in team
-            if player['summoner'] == match['invoker_summoner']][0]
+        try:
+            player = [
+                player for player in team
+                if player['summoner'] == match['invoker_summoner']][0]
+        except:
+            return 'Failed to retrieve game information.'
 
         # Get extra information
         if match['finished']:
