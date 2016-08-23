@@ -176,7 +176,7 @@ async def notify_loop(bot):
                         await asyncio.sleep(1)
 
         for crn in crns_to_remove:
-            del class_data[crn]
+            del class_dictionary[crn]
 
         await asyncio.sleep(5*60)
 
