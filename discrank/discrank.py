@@ -27,13 +27,14 @@ def get_commands():
         'lol', SubCommands(
             ('summoner ^', 'summoner <summoner name>', 'Gets some basic '
              'information about the given summoner.'),
-            ('match prev: ^', 'match prev <number> <summoner name>', 'Shows '
-             'the given previous match of the given summoner. You can see a '
-             'list of previous matches with the `match history` command.'),
-            ('match ?history ^', 'match (history) <summoner name>', 'Gets the '
-             'current or last match of the given summoner. If \'history\' is '
-             'given, this will list the last 10 games that can be seen with '
-             'the `match prev` command.'),
+            ('?ranked match prev: ^', '(ranked) match prev <number> <summoner '
+             'name>', 'Shows the given previous match of the given summoner. '
+             'You can see a list of previous matches with the `match history` '
+             'command.'),
+            ('?ranked match ?history ^', '(ranked) match (history) <summoner '
+             'name>', 'Gets the current or last match of the given summoner. '
+             'If \'history\' is given, this will list the last 10 games that '
+             'can be seen with the `match prev` command.'),
             ('mastery ?champion: ^', 'mastery (champion <"champion name">) '
              '<summoner name>', 'Gets a list of the top 10 champions of the '
              'summoner based off of mastery. If a champion is specified, it '
@@ -137,8 +138,18 @@ async def _get_league(static, summoner_ids, region):
                 EXCEPTION, "Failed to get summoner league.", e=e)
 
 
+def _check_ranked(static, match_data, current):
+    """Returns whether or not the given match is ranked."""
+    ranked_modes = ["4", "41", "42", "410"]
+    if current:
+        return match_data['gameQueueConfigId'] in ranked_modes
+    else:
+        return static[3].get(match_data['subType'], "0") in ranked_modes
+
+
 async def get_match(
-        bot, static, summoner_id, region, match_index=None, safe=False):
+        bot, static, summoner_id, region,
+        match_index=None, safe=False, ranked=False):
     """Gets a match.
 
     The match may or may not be a game, but is formatted like a match to be
@@ -148,6 +159,9 @@ async def get_match(
     if match_index is None:
         match_data = await _get_current_match(static, summoner_id, region)
         match_type = 0
+        if ranked and match_data and not _check_ranked(
+                static, match_data, True):
+            match_data = None
     else:
         try:
             match_index = int(match_index)
@@ -157,6 +171,9 @@ async def get_match(
 
     if not match_data:  # Get most recent finished game/match
         games = await _get_recent_games(static, summoner_id, region)
+        if ranked:
+            games = [
+                game for game in games if _check_ranked(static, game, False)]
         if games:
             match_type = 1
             if match_index is None:
@@ -675,22 +692,28 @@ def _get_formatted_match_table(match, verbose=False):
 
 
 async def get_match_table_wrapper(
-        bot, static, name, region, match_index=None, verbose=False):
+        bot, static, name, region,
+        match_index=None, verbose=False, ranked=False):
     """Gets the match table. Makes the calling method easier to look at."""
     summoner, region = await _get_summoner(static, name, region)
 
     # Get last match or current match information
     match = await get_match(
-        bot, static, summoner['id'], region, match_index=match_index)
+        bot, static, summoner['id'], region,
+        match_index=match_index, ranked=ranked)
     return _get_formatted_match_table(match, verbose=verbose)
 
 
-async def get_match_history_wrapper(bot, static, name, region):
+async def get_match_history_wrapper(bot, static, name, region, ranked=False):
     """Gets the match history of the given summoner."""
     summoner, region = await _get_summoner(static, name, region)
     games = await _get_recent_games(static, summoner['id'], region)
+    if ranked:
+        games = [game for game in games if _check_ranked(static, game, False)]
     if not games:
-        raise BotException(EXCEPTION, "No recent games found.")
+        raise BotException(
+            EXCEPTION, "No recent {}games found.".format(
+                'ranked ' if ranked else ''))
 
     guide_template = (
         '#  | Game Type               | Champion      | '
@@ -999,17 +1022,20 @@ async def get_response(
             bot, static, arguments[0], region, verbose=('extra' in options))
 
     elif blueprint_index == 1:  # Show old match
+        ranked = 'ranked' in options
         response = await get_match_table_wrapper(
             bot, static, arguments[0], region,
-            match_index=options['prev'], verbose=True)
+            match_index=options['prev'], verbose=True, ranked=ranked)
 
     elif blueprint_index == 2:  # Get match information
+        ranked = 'ranked' in options
+        print(ranked)
         if 'history' in options:
             response = await get_match_history_wrapper(
-                bot, static, arguments[0], region)
+                bot, static, arguments[0], region, ranked=ranked)
         else:
             response = await get_match_table_wrapper(
-                bot, static, arguments[0], region, verbose=True)
+                bot, static, arguments[0], region, verbose=True, ranked=ranked)
 
     elif blueprint_index == 3:  # Get mastery table
         champion = options['champion'] if 'champion' in options else None
