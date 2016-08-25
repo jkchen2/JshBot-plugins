@@ -6,7 +6,7 @@ from jshbot import utilities, configurations, data
 from jshbot.commands import Command, SubCommands
 from jshbot.exceptions import BotException
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 EXCEPTION = 'Class Checker'
 course_url_template = (
     "http://courses.illinois.edu/cisapp/explorer/schedule/{year}/{semester}/"
@@ -28,14 +28,20 @@ def get_commands():
     return new_commands
 
 
-def list_watching_classes(bot, author):
-    """Lists the classes that the author is watching."""
+def _get_watching_classes(bot, author):
+    """Returns a list of classes the author """
     class_dictionary = data.get(bot, __name__, 'classes', default={})
     watching = []
     for class_crn, class_values in class_dictionary.items():
         if author.id in class_values['notify_list']:
             watching.append(
                 class_values['class_title'] + ' ({})'.format(class_crn))
+    return watching
+
+
+def list_watching_classes(bot, author):
+    """Shows the classes that the author is watching as a string."""
+    watching = _get_watching_classes(bot, author)
     if watching:
         return "You are watching:\n{}".format('\n'.join(watching))
     else:
@@ -56,8 +62,16 @@ async def watch_class(bot, author, *args):
             class_dictionary[crn]['notify_list'].remove(author.id)
             return "Removed class from the watch list."
         else:
+            if len(_get_watching_classes(bot, author)) >= configurations.get(
+                    bot, __name__, 'class_limit'):
+                raise BotException(
+                    EXCEPTION, "You are watching too many classes.")
             class_dictionary[crn]['notify_list'].append(author.id)
     else:  # Class does not exist
+        if len(_get_watching_classes(bot, author)) >= configurations.get(
+                bot, __name__, 'class_limit'):
+            raise BotException(
+                EXCEPTION, "You are watching too many classes.")
         class_dictionary[crn] = {
             "notify_list": [author.id],
             "class_title": class_title,
@@ -151,7 +165,13 @@ async def notify_loop(bot):
 
         crns_to_remove = []
         for class_crn, class_values in class_dictionary.items():
-            class_data = await get_class_data(bot, *class_values['identity'])
+            try:
+                class_data = await get_class_data(
+                    bot, *class_values['identity'])
+            except Exception as e:
+                logging.error("Failed to retrieve the class: " + str(e))
+                await asyncio.sleep(30)
+                continue
             status = class_data.find('enrollmentStatus').text
             if 'Open' in status:
                 crns_to_remove.append(class_crn)
@@ -174,6 +194,7 @@ async def notify_loop(bot):
                     for it in range(5):
                         await bot.send_message(user, ":warning:")
                         await asyncio.sleep(1)
+            await asyncio.sleep(1)
 
         for crn in crns_to_remove:
             del class_dictionary[crn]
@@ -182,7 +203,8 @@ async def notify_loop(bot):
 
 
 async def on_ready(bot):
-    global course_url_template
-    course_url_template = course_url_template.format(
-        **configurations.get(bot, __name__))
-    await notify_loop(bot)
+    if bot.fresh_boot:
+        global course_url_template
+        course_url_template = course_url_template.format(
+            **configurations.get(bot, __name__))
+        await notify_loop(bot)
