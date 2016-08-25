@@ -1,3 +1,4 @@
+import random
 import asyncio
 import time
 import re
@@ -24,7 +25,8 @@ def get_commands():
             ('utc', 'utc', 'Gets date and time information for UTC.'),
             ('clean ?regex: ^', 'clean (regex <pattern>) <number>', 'Cleans '
              'the given number of messages that optionally match the given '
-             'regex pattern.')),
+             'regex pattern.'),
+            ('clap', 'clap', 'Snark mode.')),
         shortcuts=Shortcuts(
             ('sb', '{}', '^', '<arguments>', '<arguments>')),
         description='Selfbot mode helper commands.', elevated_level=3,
@@ -104,12 +106,42 @@ async def get_response(
             message_type, extra = 2, 2
             response = 'Deleted {} message(s)'.format(len(matched_messages))
 
+        elif blueprint_index == 3:  # Snark
+            response = ':clap:'
+            message_type = 3
+            extra = 'snark', message
+
     elif base == 'texttools':
         message_type = 4  # Replace
         table = translation_tables[blueprint_index]
         response = cleaned_content.split(' ', 1)[1].translate(table)
 
     return (response, tts, message_type, extra)
+
+
+async def handle_active_message(bot, message_reference, extra):
+    if extra[0] == 'snark':
+        frame_open = ':raised_hand::hand_splayed:'
+        frame_closed = ':clap:'
+        offensive = ':middle_finger:'
+        try:
+            await bot.remove_message(extra[1])
+        except:
+            pass
+        try:
+            for it in range(30):
+                message_reference = await bot.edit_message(
+                    message_reference, frame_open)
+                await asyncio.sleep(1)
+                if random.random() < 0.01:
+                    message_reference = await bot.edit_message(
+                        message_reference, offensive)
+                else:
+                    message_reference = await bot.edit_message(
+                        message_reference, frame_closed)
+                await asyncio.sleep(1)
+        except:
+            pass
 
 
 async def filter_messages(
