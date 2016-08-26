@@ -125,7 +125,7 @@ async def handle_active_message(bot, message_reference, extra):
         frame_closed = ':clap:'
         offensive = ':middle_finger:'
         try:
-            await bot.remove_message(extra[1])
+            await bot.delete_message(extra[1])
         except:
             pass
         try:
