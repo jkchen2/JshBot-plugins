@@ -1,3 +1,4 @@
+import logging
 import asyncio
 
 import xml.etree.ElementTree as ElementTree
@@ -130,17 +131,26 @@ async def get_class_info(bot, *args):
         notes = "None provided."
     else:
         notes = notes.text
+
+    section = (
+        class_data.find('sectionNumber').text
+        if class_data.find('sectionNumber') else 'n/a')
+    status = (
+        class_data.find('enrollmentStatus').text
+        if class_data.find('enrollmentStatus') else 'n/a')
+    attributes = [
+        'type', 'start', 'end', 'daysOfTheWeek', 'roomNumber', 'buildingName']
+    data_list = []
+    for attribute in attributes:
+        data_list.append(
+            meeting_data.find(attribute).text
+            if meeting_data.find(attribute) else 'n/a')
+
     return (
         '***`{0}`***\n**Section:** {1}\n**Type:** {2}\n**Meets:** {5} {3} to '
         '{4} in {6} {7}\n**Instructors:** {8}\n**Status:** {9}\n**Notes:** '
         '{10}'.format(
-            class_title, class_data.find('sectionNumber').text,
-            meeting_data.find('type').text, meeting_data.find('start').text,
-            meeting_data.find('end').text,
-            meeting_data.find('daysOfTheWeek').text,
-            meeting_data.find('roomNumber').text,
-            meeting_data.find('buildingName').text,
-            instructor_names, class_data.find('enrollmentStatus').text, notes))
+            class_title, section, *data_list, instructor_names, status, notes))
 
 
 async def get_response(
@@ -172,7 +182,12 @@ async def notify_loop(bot):
                 logging.error("Failed to retrieve the class: " + str(e))
                 await asyncio.sleep(30)
                 continue
-            status = class_data.find('enrollmentStatus').text
+            try:
+                status = class_data.find('enrollmentStatus').text
+            except:
+                status = ''
+                logging.error(
+                    "There is no enrollment status for {}.".format(class_crn))
             if 'Open' in status:
                 crns_to_remove.append(class_crn)
                 if 'Restricted' in status:  # Open, but restricted
