@@ -49,7 +49,7 @@ async def get_response(
 
         message_type = 5
         response = open(
-            '{}/plugins/plugin_data/alexout.png'.format(bot.path), 'rb')
+            '{}/temp/alexout.png'.format(bot.path), 'rb')
 
     return (response, tts, message_type, extra)
 
@@ -109,7 +109,7 @@ def build_dual_text(bot, text_1, text_2):
     base_image.paste(text_b, box=(current_x, PAD_SIZE))
 
     base_image.save(
-        '{}/plugins/plugin_data/alexout.png'.format(bot.path), 'png')
+        '{}/temp/alexout.png'.format(bot.path), 'png')
 
 
 def build_single_text(bot, text_1):
@@ -141,7 +141,7 @@ def build_single_text(bot, text_1):
     base_image.paste(text_d, box=(current_x, PAD_SIZE))
 
     base_image.save(
-        '{}/plugins/plugin_data/alexout.png'.format(bot.path), 'png')
+        '{}/temp/alexout.png'.format(bot.path), 'png')
 
 
 async def on_ready(bot):
