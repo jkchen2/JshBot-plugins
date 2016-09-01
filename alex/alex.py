@@ -1,11 +1,12 @@
 import subprocess
+import io
 
 from PIL import Image, ImageDraw, ImageFont
 from jshbot import utilities
 from jshbot.commands import Command, SubCommands
 from jshbot.exceptions import BotException
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 EXCEPTION = 'AlexJS'
 uses_configuration = False
 
@@ -39,17 +40,21 @@ async def get_response(
         response = await utilities.future(alex_parse, bot, arguments[0])
 
     elif base == 'alexify':
+        image_bytes = io.BytesIO()
         for text in arguments:
             if len(text) > 32:
                 raise BotException(EXCEPTION, "32 character limit.")
         if arguments[1]:
-            await utilities.future(build_dual_text, bot, *arguments)
+            image_bytes = await utilities.future(
+                build_dual_text, bot, image_bytes, *arguments)
         else:
-            await utilities.future(build_single_text, bot, arguments[0])
+            image_bytes = await utilities.future(
+                build_single_text, bot, image_bytes, arguments[0])
 
         message_type = 5
-        response = open(
-            '{}/temp/alexout.png'.format(bot.path), 'rb')
+        image_bytes.seek(0)
+        extra = 'alex.png'
+        response = image_bytes
 
     return (response, tts, message_type, extra)
 
@@ -68,7 +73,7 @@ def alex_parse(bot, text):
     return '```\n{}```'.format(response)
 
 
-def build_dual_text(bot, text_1, text_2):
+def build_dual_text(bot, image_bytes, text_1, text_2):
     text_dummy = ImageDraw.Draw(alex_parent)
     text_1_size = text_dummy.textsize(text_1, font=font)[0]
     text_1_image = Image.new('RGB', (text_1_size, 32), (206, 64, 55))
@@ -108,11 +113,11 @@ def build_dual_text(bot, text_1, text_2):
     # Text B
     base_image.paste(text_b, box=(current_x, PAD_SIZE))
 
-    base_image.save(
-        '{}/temp/alexout.png'.format(bot.path), 'png')
+    base_image.save(image_bytes, 'png')
+    return image_bytes
 
 
-def build_single_text(bot, text_1):
+def build_single_text(bot, image_bytes, text_1):
     text_dummy = ImageDraw.Draw(alex_parent)
     text_1_size = text_dummy.textsize(text_1, font=font)[0]
     text_1_image = Image.new('RGB', (text_1_size, 32), (206, 64, 55))
@@ -140,8 +145,8 @@ def build_single_text(bot, text_1):
     # Text D
     base_image.paste(text_d, box=(current_x, PAD_SIZE))
 
-    base_image.save(
-        '{}/temp/alexout.png'.format(bot.path), 'png')
+    base_image.save(image_bytes, 'png')
+    return image_bytes
 
 
 async def on_ready(bot):
@@ -159,4 +164,4 @@ async def on_ready(bot):
     text_c = alex_parent.crop((396, 0, 509, 32))
     text_d = alex_parent.crop((510, 0, 654, 32))
     font = ImageFont.truetype(
-        '{}/plugins/plugin_data/VeraMono.ttf'.format(bot.path), 24)
+        '{}/plugins/plugin_data/DejaVuSansMono.ttf'.format(bot.path), 24)
