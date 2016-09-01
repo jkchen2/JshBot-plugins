@@ -27,7 +27,7 @@ def get_commands():
             ('+', '<department code> (course number) (CRN)', 'Gets '
              'information about the given department, course number, and/or '
              'CRN if included.')),
-        description='UIUC course tool', group='tools'))
+        description='UIUC course tool.', group='tools'))
 
     return new_commands
 
@@ -102,7 +102,6 @@ async def list_search(bot, *args):
         if not section_list:
             raise BotException(EXCEPTION, "Course has no sections.")
         for section_data in section_list:
-            bot.extra = section_data
             section_details = _get_section_details(section_data)
             response_list.append(
                 '**{crn}:** {section} ({type}), {start}-{end} {days}'.format(

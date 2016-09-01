@@ -1,7 +1,6 @@
 import random
 import time
 import logging
-import os
 
 from itertools import groupby
 from operator import itemgetter
@@ -677,10 +676,10 @@ async def get_checked_durations(bot, urls):
                 chosen_format = info['formats'][0]
                 extension = chosen_format['ext']
                 download_url = chosen_format['url']
-                file_location = await utilities.download_url(
-                    bot, download_url, extension=extension)
+                file_location, filename = await utilities.download_url(
+                    bot, download_url, extension=extension, include_name=True)
                 duration = int(TinyTag.get(file_location).duration)
-                os.remove(file_location)
+                utilities.delete_temporary_file(bot, filename)
         except BotException as e:
             raise e  # Pass up
         except Exception as e:
