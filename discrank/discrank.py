@@ -9,7 +9,7 @@ import logging
 from riotwatcher import RiotWatcher
 from riotwatcher import LoLException, error_429, error_404
 
-from jshbot import data, configurations
+from jshbot import data, configurations, utilities
 from jshbot.commands import Command, SubCommands, Shortcuts
 from jshbot.exceptions import ErrorTypes, BotException
 from jshbot.utilities import future
@@ -170,12 +170,13 @@ async def get_match(
         match_data = None
 
     if not match_data:  # Get most recent finished game/match
-        games = await _get_recent_games(static, summoner_id, region)
         if ranked:
-            games = [
-                game for game in games if _check_ranked(static, game, False)]
-        if games:
+            match_type = 2
+            games = await _get_recent_matches(static, summoner_id, region)
+        else:
             match_type = 1
+            games = await _get_recent_games(static, summoner_id, region)
+        if games:
             if match_index is None:
                 match_data = games[0]
             elif match_index < 1 or match_index > len(games):
@@ -203,6 +204,7 @@ async def _format_match_data(
     Match types:
     0 -- current
     1 -- universal (match or game ID)
+    2 -- match only (match has separate data)
     """
     match = {}
     blue_team, red_team, blue_players, red_players = {}, {}, [], []
@@ -294,6 +296,14 @@ async def _format_match_data(
         match['game_time'] = '{0}:{1:02d}'.format(
             int(length / 60), length % 60)
         red_team['bans'], blue_team['bans'] = [], []
+        for team in match_details['teams']:
+            for ban in team.get('bans', []):
+                champion_name = static[1].get(
+                    str(ban['championId']), {}).get('name', 'Unknown')
+                if team['teamId'] == 100:
+                    blue_team['bans'].append(champion_name)
+                else:
+                    red_team['bans'].append(champion_name)
         won = stats['win']
         if stats['team'] == 100:
             match['invoker_summoner_team'] = 'Blue'
@@ -305,13 +315,11 @@ async def _format_match_data(
         # Get player data list and champion names
         player_ids = [int(summoner_id)]
         player_names = [summoner_name]
-        game_teams = [stats['team']]
         champion_ids = [match_data['championId']]
         champions = [static[1].get(str(
             match_data['championId']), {}).get('name', 'Unknown')]
         for player in match_data.get('fellowPlayers', []):
             player_ids.append(player['summonerId'])
-            game_teams.append(player['teamId'])
             champion_ids.append(player['championId'])
             champions.append(static[1].get(
                 str(player['championId']), {}).get('name', 'Unknown'))
@@ -382,11 +390,95 @@ async def _format_match_data(
         red_team['players'] = red_players
         blue_team['players'] = blue_players
 
+    elif match_type == 2:  # Match only
+        match['teams'] = {'red': red_team, 'blue': blue_team}
+        match_details = await _get_match_data(
+            static, match_data['matchId'], region)
+        match['finished'] = True
+        match['game_mode'] = static[3].get(
+            static[3].get(match_details['queueType'], '-1'), 'Unknown')
+        match['timestamp'] = match_data['timestamp']
+        length = match_details['matchDuration']
+        match['game_time'] = '{0}:{1:02d}'.format(
+            int(length / 60), length % 60)
+        blue_won = match_details['teams'][0]['winner']
+        blue_team['winner'], red_team['winner'] = blue_won, not blue_won
+        red_team['bans'], blue_team['bans'] = [], []
+        for team in match_details['teams']:
+            for ban in team['bans']:
+                champion_name = static[1].get(
+                    str(ban['championId']), {}).get('name', 'Unknown')
+                if team['teamId'] == 100:
+                    blue_team['bans'].append(champion_name)
+                else:
+                    red_team['bans'].append(champion_name)
+
+        # Get player data list and ranks
+        players = [player for player in match_details['participantIdentities']]
+        player_ids = [player['player']['summonerId'] for player in players]
+        player_names = [player['player']['summonerName'] for player in players]
+        player_data = await _get_league(static, player_ids, region)
+        player_ranks = []
+        for player_id in player_ids:
+            if str(player_id) in player_data:
+                league = player_data[str(player_id)][0]
+                rank = '({0}{1})'.format(
+                    league['tier'][0],
+                    divisions[league['entries'][0]['division']])
+            else:
+                rank = ''
+            player_ranks.append(rank)
+
+        # Pull information from each entry of player_game_data
+        for index, player in enumerate(match_details['participants']):
+
+            # Get spells and KDA with match details
+            spell_ids = [str(player['spell1Id']), str(player['spell2Id'])]
+            spells = [static[2].get(spell, {}).get('name', 'Unknown')
+                      for spell in spell_ids]
+            stats = player['stats']
+            kills, deaths, assists = (
+                stats['kills'], stats['deaths'], stats['assists'])
+            value = (kills + assists) / (1 if deaths == 0 else deaths)
+            kda_values = [kills, deaths, assists]
+            kda = '{0}/{1}/{2} ({3:.2f})'.format(kills, deaths, assists, value)
+
+            # Get mastery if this is the target player
+            if player_names[index] == match['invoker_summoner']:
+                team_name = 'Blue' if player['teamId'] == 100 else 'Red'
+                match['invoker_summoner_team'] = team_name
+                mastery = await _get_mastery_data(
+                    bot, static, summoner_id, region,
+                    champion_id=player['championId'])
+                if mastery:
+                    mastery = (
+                        '({0[championPoints]}|{0[championLevel]})').format(
+                            mastery)
+                else:
+                    mastery = '(0|0)'
+            else:
+                mastery = None
+
+            players = blue_players if player['teamId'] == 100 else red_players
+            players.append({
+                'summoner': player_names[index],
+                'summoner_id': player_ids[index],
+                'spells': spells,
+                'champion': static[1].get(
+                    str(player['championId']), {}).get('name', 'Unknown'),
+                'rank': player_ranks[index],
+                'kda': kda,
+                'kda_values': kda_values,
+                'mastery': mastery})
+
+        red_team['players'] = red_players
+        blue_team['players'] = blue_players
+
     return match
 
 
 async def _get_recent_matches(static, summoner_id, region):
-    """Gets the match list. Returns None if no matches are found."""
+    """Gets the match list. Returns empty list if no matches are found."""
     watcher = static[0]
     try:
         match_list = await future(
@@ -707,9 +799,19 @@ async def get_match_table_wrapper(
 async def get_match_history_wrapper(bot, static, name, region, ranked=False):
     """Gets the match history of the given summoner."""
     summoner, region = await _get_summoner(static, name, region)
-    games = await _get_recent_games(static, summoner['id'], region)
     if ranked:
-        games = [game for game in games if _check_ranked(static, game, False)]
+        games = await _get_recent_matches(static, summoner['id'], region)
+        games = games[:20]  # Limit to 20 games
+
+        # Retrieve data for 20 games
+        match_ids = [str(game['matchId']) for game in games]
+        coroutines = [
+            _get_match_data(static, match_id, region)
+            for match_id in match_ids]
+        match_results = await utilities.parallelize(
+            coroutines, return_exceptions=True)
+    else:
+        games = await _get_recent_games(static, summoner['id'], region)
     if not games:
         raise BotException(
             EXCEPTION, "No recent {}games found.".format(
@@ -722,17 +824,41 @@ async def get_match_history_wrapper(bot, static, name, region, ranked=False):
         '-----------------|--------|\n')
     formatted_games = []
     for index, game in enumerate(games):
-        game_type = static[3].get(
-            static[3].get(game['subType'], '-1'), 'Unknown')
-        champion = static[1].get(
-            str(game['championId']), {}).get('name', 'Unknown')
-        stats = game['stats']
-        kills, deaths, assists = (
-            stats.get('championsKilled', 0),
-            stats.get('numDeaths', 0), stats.get('assists', 0))
+        if ranked:
+            game_type = static[3].get(
+                static[3].get(game['queue'], '-1'), 'Unknown')
+            champion = static[1].get(
+                str(game['champion']), {}).get('name', 'Unknown')
+            current = match_results[index]
+            if isinstance(current, Exception):
+                kills, deaths, assists, status = 0, 0, 0, 'n/a'
+            else:
+                participants = current['participants']
+                for player in current['participantIdentities']:
+                    if player['player']['summonerId'] == summoner['id']:
+                        participant_index = player['participantId'] - 1
+                        team_id = participants[participant_index]['teamId']
+                        break
+                stats = participants[participant_index]['stats']
+                kills, deaths, assists = (
+                    stats['kills'], stats['deaths'], stats['assists'])
+                if (team_id == 100) != current['teams'][0]['winner']:
+                    status = 'Lost'
+                else:
+                    status = 'Won'
+        else:
+            game_type = static[3].get(
+                static[3].get(game['subType'], '-1'), 'Unknown')
+            champion = static[1].get(
+                str(game['championId']), {}).get('name', 'Unknown')
+            stats = game['stats']
+            kills, deaths, assists = (
+                stats.get('championsKilled', 0),
+                stats.get('numDeaths', 0), stats.get('assists', 0))
+            status = 'Won' if stats['win'] else 'Lost'
+
         value = (kills + assists) / (1 if deaths == 0 else deaths)
         kda = '{0}/{1}/{2} ({3:.2f})'.format(kills, deaths, assists, value)
-        status = 'Won' if stats['win'] else 'Lost'
         formatted_games.append((
             '{0: <3}| {1: <24}| {2: <14}| {3: <17}| {4: <7}|').format(
                 index + 1, game_type, champion, kda, status))
@@ -1029,7 +1155,6 @@ async def get_response(
 
     elif blueprint_index == 2:  # Get match information
         ranked = 'ranked' in options
-        print(ranked)
         if 'history' in options:
             response = await get_match_history_wrapper(
                 bot, static, arguments[0], region, ranked=ranked)
