@@ -1,3 +1,8 @@
 {
-    "api_key":""
+    "api_key": "",
+    "server": "http://api.wolframalpha.com/v2/query",
+    "default_ip": "192.168.0.1",
+    "scan_timeout": "",
+    "pod_timeout": "",
+    "format_timeout": ""
 }
