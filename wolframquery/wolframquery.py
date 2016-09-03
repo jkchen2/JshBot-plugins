@@ -1,4 +1,6 @@
+import asyncio
 import urllib
+import random
 import io
 
 import wap
@@ -10,7 +12,7 @@ from jshbot import utilities, data, configurations
 from jshbot.commands import Command, SubCommands, Shortcuts
 from jshbot.exceptions import BotException
 
-__version__ = '0.1.1'
+__version__ = '0.1.2'
 EXCEPTION = 'Wolfram|Alpha API plugin'
 uses_configuration = True
 
@@ -20,6 +22,8 @@ def get_commands():
 
     commands.append(Command(
         'wolfram', SubCommands(
+            ('pro', 'pro', 'Learn about Wolfram|Alpha Pro and what it can '
+             'help you accomplish.'),
             ('ip &', 'ip (<IP address>)', 'Sets the default IP address used '
              'for queries.'),
             ('?text ?results: ^', '(text) (reslts <number of results>) '
@@ -34,6 +38,104 @@ def get_commands():
         other='API calls are limited. Please use responsibly!', group='tools'))
 
     return commands
+
+
+def get_wolfram_pro_advertisement(full=False):
+    """Returns a string that advertises W|A Pro."""
+    if full:
+        return (
+            "Wolfram|Alpha Pro lets you do more with Wolfram|Alpha. Whether "
+            "you are a business, professional, or student, Wolfram|Alpha Pro "
+            "can cater to your needs.\n\n***For business:***\nWolfram|Alpha "
+            "Pro allows you to analyze your own custom data by uploading "
+            "images and files. With access to the powerful Wolfram|Alpha "
+            "engine, your data can be analyzed quickly and easily. "
+            "Furthermore, Wolfram|Alpha Pro enables you to build charts, "
+            "graphs, and other beautifully formatted visualizations with your "
+            "uploaded data. See which files you can upload and analyze here: "
+            "<https://www.wolframalpha.com/input/pro/uploadexamples/>\n\n"
+            "***For educators:***\nGet accurate and up-to-date data on nearly "
+            "anything, ranging from population histories to chemical "
+            "compounds, and everything in between. Build engaging visuals, "
+            "such as detailed charts, perfect 3D graphs, and more. Use the "
+            "Wolfram Problem Generator to create unique practice problems for "
+            "every student, covering a wide range of math subjects, including "
+            "number theory and statistics. Try the Wolfram Problem Generator "
+            "here: <https://www.wolframalpha.com/problem-generator/>\n\n"
+            "***For students:***\nReceive help on those difficult math "
+            "problems using Wolfram|Alpha Pro with step-by-step solutions to "
+            "many topics, including calculus and differential equations. "
+            "Customize your Wolfram|Alpha experience using Wolfram|Alpha "
+            "powered web apps to make recurring calculations a breeze. "
+            "Wolfram|Alpha Pro also makes it easier than ever to input math "
+            "into a query with the included extended keyboard for math and "
+            "physics. See how the solver works here: <https://"
+            "www.wolframalpha.com/pro/step-by-step-math-solver.html>\n\n"
+            "No matter what type of organization or individual you are, "
+            "Wolfram|Alpha has what it takes to increase your productivity "
+            "and help you make the most out of your time. Designed for "
+            "ease-of-use, but also great computational power, Wolfram|Alpha "
+            "Pro gives you the prime Wolfram|Alpha experience you need. \n\n"
+            "For more details, visit https://www.wolframalpha.com/pro/")
+    else:
+        content = random.choice((
+            "Consider supporting Wolfram|Alpha by trying out Wolfram|Alpha "
+            "Pro! It helps keep Wolfram|Alpha free, and provides you with "
+            "a much more complete knowledge database experience.",
+            "Do you work/study in a STEM field? Wolfram|Alpha Pro can help!",
+            "Need help with STEM homework? Wolfram|Alpha Pro has you covered "
+            "with step-by-step instructions on how to solve almost any "
+            "calculus problems.",
+            "Experience professional-grade computational knowledge with "
+            "Wolfram|Alpha Pro.",
+            "Student or educator in STEM? Wolfram|Alpha brings you the "
+            "professional features you need to excel.",
+            "Love Wolfram|Alpha? Get more out of your Wolfram|Alpha "
+            "experience by going pro!",
+            "Need beautifully crafted interactive data visuals? Wolfram|Alpha "
+            "Pro can do that for you!",
+            "Professional-grade data analysis and visualization can "
+            "greatly expedite completing projects and presentations.",
+            "Need help with math homework? Get step-by-step solutions for "
+            "complexity ranging from arithmetic to calculus and beyind!",
+            "Having trouble with learning mathematics? It doesn't matter "
+            "if it's algebra or differential equations, Wolfram|Alpha Pro "
+            "gives you step-by-step solutions.",
+            "Need extra math practice? Wolfram|Alpha Pro can generate an "
+            "infinite number of practice problems with step-by-step "
+            "solutions to help you ace your exams.",
+            "Frequent Wolfram|Alpha user? Tailor your experience for your own "
+            "needs with Wolfram|Alpha Pro!",
+            "Are your querries timing out? Wolfram|Alpha Pro extends "
+            "computation times.",
+            "Need powerful visualization and analysis tools for your data? "
+            "Wolfram|Alpha Pro is for you!",
+            "Directly interact with and download computed data with "
+            "Wolfram|Alpha Pro."
+            ))
+        link = random.choice((
+            'See more at', 'For more information, visit',
+            'See what upgrading can do at', 'Interested? Check out',
+            'Click here for more:', 'Ready to upgrade? See',
+            'Curious? Learn more at',
+            'Check it out at')) + ' <https://www.wolframalpha.com/pro/>'
+        return content + ' ' + link
+
+
+def check_advertisement(bot, location, destination_channel):
+    """Determines whether or not an advertisement should be sent.
+
+    If an advertisement should be sent, it sends one (without blocking)."""
+    all_uses = data.get(bot, __name__, 'uses', volatile=True)
+    ad_uses = configurations.get(bot, __name__, 'ad_uses')
+    ad_uses = ad_uses if ad_uses else 30
+    current_uses = all_uses.get(location.id, 0)
+    if current_uses > ad_uses:  # Show advertisement
+        del all_uses[location.id]
+        content = get_wolfram_pro_advertisement()
+        asyncio.ensure_future(bot.send_message(destination_channel, content))
+    else:
+        all_uses[location.id] = current_uses + 1
 
 
 async def async_query(client, client_query):
@@ -202,7 +304,10 @@ async def get_response(
         keywords, cleaned_content):
     response, tts, message_type, extra = ('', False, 0, None)
 
-    if blueprint_index == 0:  # set IP
+    if blueprint_index == 0:  # W|A Pro information
+        response = get_wolfram_pro_advertisement(full=True)
+
+    if blueprint_index == 1:  # set IP
         if message.server is None:
             raise BotException(
                 EXCEPTION, "Cannot set IP address in a direct message.")
@@ -218,7 +323,7 @@ async def get_response(
                     bot, __name__, 'server_ip',
                     server_id=message.server.id, default=default_ip))
 
-    elif blueprint_index == 1:  # regular query
+    elif blueprint_index == 2:  # regular query
         if 'results' in options:
             try:
                 extra_results = int(options['results'])
@@ -234,6 +339,9 @@ async def get_response(
         response = await get_query_result(
             bot, message.server, arguments[0],
             text_result=text_result, extra_results=extra_results)
+        if configurations.get(bot, __name__, 'ads'):
+            location = message.server if message.server else message.channel
+            check_advertisement(bot, location, message.channel)
 
     return (response, tts, message_type, extra)
 
@@ -246,3 +354,4 @@ async def on_ready_boot(bot):
     client.PodTimeout = config['pod_timeout']
     client.FormatTimeout = config['format_timeout']
     data.add(bot, __name__, 'client', client, volatile=True)
+    data.add(bot, __name__, 'uses', {}, volatile=True)
