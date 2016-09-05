@@ -22,7 +22,8 @@ def get_commands():
              '(message ID)', 'Searches for a message where a language '
              'was used. Provide a channel ID if you want to be discreet. '
              'Inspects the last 500 messages.'),
-            ('utc', 'utc', 'Gets date and time information for UTC.'),
+            ('utc &', 'utc (<seconds>)', 'Gets date and time information '
+             'for UTC. It can also convert seconds into UTC time.'),
             ('clean ?regex: ^', 'clean (regex <pattern>) <number>', 'Cleans '
              'the given number of messages that optionally match the given '
              'regex pattern.'),
@@ -83,9 +84,16 @@ async def get_response(
                 raise BotException(EXCEPTION, "No valid message found.")
 
         elif blueprint_index == 1:  # UTC time stuff
+            if arguments[0]:
+                try:
+                    given_time = int(arguments[0])
+                except:
+                    raise BotException(EXCEPTION, "Invalid time.")
+            else:
+                given_time = time.time()
             response = '`UTC: {0} ({1})`\n`Local: {2}`'.format(
-                time.strftime('%c', time.gmtime(time.time())),
-                time.time(), time.strftime('%c'))
+                time.strftime('%c', time.gmtime(given_time)),
+                given_time, time.strftime('%c', time.localtime(given_time)))
 
         elif blueprint_index == 2:  # Clean messages
             if 'regex' in options:
