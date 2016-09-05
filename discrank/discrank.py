@@ -193,8 +193,14 @@ async def get_match(
                 raise BotException(EXCEPTION, "No recent match found.")
 
     # Use match data and match type to get properly formatted match
-    return await _format_match_data(
-        bot, static, summoner_id, region, match_data, match_type)
+    try:
+        return await _format_match_data(
+            bot, static, summoner_id, region, match_data, match_type)
+    except Exception as e:
+        if safe:
+            return None
+        else:
+            raise e
 
 
 async def _format_match_data(
@@ -905,7 +911,7 @@ async def get_summoner_information(bot, static, name, region, verbose=False):
                      "**W/L Percent:** {2:.2f}%\n\n").format(
                          division, entries, wlr)
     else:
-        response += "This summoner has not played ranked yet this season...\n"
+        response += "This summoner has not played ranked yet this season.\n\n"
 
     # Get last match or current match information
     match = await get_match(bot, static, summoner_id, region, safe=True)
@@ -914,7 +920,8 @@ async def get_summoner_information(bot, static, name, region, verbose=False):
                 'Last' if match['finished'] else 'Current')
         response += _get_formatted_match_table(match)
     else:
-        response += "A most recent match was not found...\n"
+        response += (
+            "A most recent match was not found or could not be obtained.")
 
     return response
 
