@@ -627,9 +627,9 @@ async def get_response(
             if len(response) > 1950 or 'file' in options:
                 response = response.replace('\n# ', '\r\n\r\n# ')
                 response = response.replace(' #\n', ' #\r\n')
-                await utilities.send_text_as_file(
-                    bot, message.channel, response, 'tags')
-                response = "Here's a file with the tags."
+                message_type = 5  # Send file
+                response = utilities.get_text_as_file(bot, response)
+                extra = 'tags.txt'
             else:
                 response = '```md\n' + response + '```'
 
