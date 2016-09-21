@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Modified by Joshua Chen (jkchen2@illinois.edu) on 30/08/16
+# Modified by Joshua Chen (jkchen2@illinois.edu) on 21/09/16
 # Includes changes to add the ip parameter in WolframAlphaQuery, remove the
 # simplejson dependency (using json instead), use urllib.* instead of urllib2,
 # and PEP8-ify most of the code. There are also some minor formatting changes.
@@ -40,15 +40,19 @@ class WolframAlphaEngine:
         self.FormatTimeout = ''
         self.Async = ''
 
-    def CreateQuery(self, query='', ip='192.168.0.1'):
-        waeq = WolframAlphaQuery(query, ip=ip)
+    def CreateQuery(self, query=''):
+        waeq = self.GetQuery(query=query)
+        waeq.ToURL()
+        return waeq.Query
+
+    def GetQuery(self, query=''):
+        waeq = WolframAlphaQuery(query)
         waeq.appid = self.appid
         waeq.ScanTimeout = self.ScanTimeout
         waeq.PodTimeout = self.PodTimeout
         waeq.FormatTimeout = self.FormatTimeout
         waeq.Async = self.Async
-        waeq.ToURL()
-        return waeq.Query
+        return waeq
 
     def PerformQuery(self, query=''):
         try:
@@ -63,18 +67,18 @@ class WolframAlphaEngine:
 
 class WolframAlphaQuery:
 
-    def __init__(self, query='', appid='', ip='192.168.0.1'):
+    def __init__(
+            self, query='', appid=''):
         self.Query = query
         self.appid = appid
-        self.ip = ip
         self.ScanTimeout = ''
         self.PodTimeout = ''
         self.FormatTimeout = ''
         self.Async = ''
 
     def ToURL(self):
-        self.Query = '?input={0}&appid={1}&ip={2}'.format(
-            quote(self.Query), quote(self.appid), quote(self.ip))
+        self.Query = '?input={0}&appid={1}'.format(
+            quote(self.Query), quote(self.appid))
         self.Query += '{0}{1}{2}{3}'.format(
             '&scantimeout='+quote(self.ScanTimeout) if self.ScanTimeout else '',
             '&podtimeout='+quote(self.PodTimeout) if self.PodTimeout else '',
@@ -95,6 +99,15 @@ class WolframAlphaQuery:
 
     def AddAssumption(self, assumption=''):
         self.Query += '&assumption=' + quote(assumption)
+
+    def AddFormat(self, format_param='plaintext,image'):
+        self.Query += '&format=' + quote(format_param)
+
+    def AddIp(self, ip='192.168.0.1'):
+        self.Query += '&ip=' + quote(ip)
+
+    def AddUnits(self, units='metric'):
+        self.Query += '&units=' + quote(units)
 
 
 class WolframAlphaQueryResult:

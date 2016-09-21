@@ -12,7 +12,7 @@ from jshbot import utilities, data, configurations
 from jshbot.commands import Command, SubCommands, Shortcuts
 from jshbot.exceptions import BotException
 
-__version__ = '0.1.2'
+__version__ = '0.1.3'
 EXCEPTION = 'Wolfram|Alpha API plugin'
 uses_configuration = True
 
@@ -26,6 +26,8 @@ def get_commands():
              'help you accomplish.'),
             ('ip &', 'ip (<IP address>)', 'Sets the default IP address used '
              'for queries.'),
+            ('units', 'units',
+             'Toggles between metric and US standard units.'),
             ('?text ?results: ^', '(text) (reslts <number of results>) '
              '<query>', 'Uses Wolfram|Alpha to parse the given query. The '
              'number of results can be up to 8, and defaults to 3. Adding the '
@@ -149,11 +151,19 @@ async def async_query(client, client_query):
     return result
 
 
-async def wolfram_alpha_query(bot, query, user_ip):
+async def wolfram_alpha_query(
+        bot, query, user_ip,
+        indices='', format_param='plaintext,image', units='metric'):
     """Returns a query result from Wolfram|Alpha."""
     client = data.get(bot, __name__, 'client', volatile=True)
-    client_query = client.CreateQuery(query, ip=user_ip)
-    query_result = await async_query(client, client_query)
+    client_query = client.GetQuery(query=query)
+    client_query.ToURL()
+    if indices:
+        client_query.AddPodIndex(podindex=indices)
+    # client_query.AddFormat(format_param=format_param)  # need both
+    client_query.AddIp(ip=user_ip)
+    client_query.AddUnits(units=units)
+    query_result = await async_query(client, client_query.Query)
     result = wap.WolframAlphaQueryResult(query_result)
     element = ElementTree.fromstring(result.XmlResult)
     return ElementTree.ElementTree(element=element).getroot()
@@ -163,13 +173,23 @@ async def get_query_result(
         bot, server, query, text_result=False, extra_results=0):
     """Gets a query result and formats it."""
     default_ip = configurations.get(bot, __name__, key='default_ip')
+    default_units = configurations.get(bot, __name__, key='default_units')
     if server is None:
         server_ip = default_ip
+        units = default_units
     else:
         server_ip = data.get(
             bot, __name__, 'server_ip',
             server_id=server.id, default=default_ip)
-    root = await wolfram_alpha_query(bot, query, server_ip)
+        units = data.get(
+            bot, __name__, 'server_units',
+            server_id=server.id, default=default_units)
+
+    indices = ','.join((str(index) for index in range(1, extra_results + 2)))
+    format_param = 'plaintext' + ('' if text_result else ',image')
+    root = await wolfram_alpha_query(
+        bot, query, server_ip,
+        indices=indices, format_param=format_param, units=units)
     pods = root.findall('pod')
     response = ''
     query_url = '<http://www.wolframalpha.com/input/?i={}>'.format(
@@ -307,7 +327,7 @@ async def get_response(
     if blueprint_index == 0:  # W|A Pro information
         response = get_wolfram_pro_advertisement(full=True)
 
-    if blueprint_index == 1:  # set IP
+    elif blueprint_index == 1:  # set IP
         if message.server is None:
             raise BotException(
                 EXCEPTION, "Cannot set IP address in a direct message.")
@@ -323,7 +343,24 @@ async def get_response(
                     bot, __name__, 'server_ip',
                     server_id=message.server.id, default=default_ip))
 
-    elif blueprint_index == 2:  # regular query
+    elif blueprint_index == 2:  # toggle metric units
+        response = 'Not in quite yet...'
+        default_units = configurations.get(bot, __name__, key='default_units')
+        units = data.get(
+            bot, __name__, 'server_units',
+            server_id=message.server.id, default=default_units)
+        if units == 'metric':
+            new_units = 'nonmetric'
+            response = 'US standard'
+        else:
+            new_units = 'metric'
+            response = 'Metric'
+        data.add(
+            bot, __name__, 'server_units', new_units,
+            server_id=message.server.id)
+        response += ' units are now set as the default.'
+
+    elif blueprint_index == 3:  # regular query
         if 'results' in options:
             try:
                 extra_results = int(options['results'])
