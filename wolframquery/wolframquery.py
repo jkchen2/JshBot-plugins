@@ -128,10 +128,11 @@ def check_advertisement(bot, location, destination_channel):
     If an advertisement should be sent, it sends one (without blocking)."""
     all_uses = data.get(bot, __name__, 'uses', volatile=True)
     ad_uses = configurations.get(bot, __name__, 'ad_uses')
-    ad_uses = ad_uses if ad_uses else 30
+    ad_uses = ad_uses if ad_uses > 0 else 30
     current_uses = all_uses.get(location.id, 0)
-    if current_uses > ad_uses:  # Show advertisement
-        del all_uses[location.id]
+    if current_uses >= ad_uses - 1:  # Show advertisement
+        if location.id in all_uses:
+            del all_uses[location.id]
         content = get_wolfram_pro_advertisement()
         asyncio.ensure_future(bot.send_message(destination_channel, content))
     else:
@@ -188,7 +189,6 @@ async def get_query_result(
                     ', '.join(suggestion_text[:3]))))
     elif root.get('timedout'):
         if len(pods) == 0:
-            bot.extra = root
             raise BotException(EXCEPTION, "Query timed out.", query_url)
         elif len(pods) < extra_results:
             response += "`Query timed out but returned some results:`\n"
