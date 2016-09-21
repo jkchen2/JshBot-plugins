@@ -4,6 +4,7 @@
     "api_key": "",
     "server": "http://api.wolframalpha.com/v2/query",
     "default_ip": "192.168.0.1",
+    "default_units": "nonmetric",
     "scan_timeout": "",
     "pod_timeout": "",
     "format_timeout": ""
