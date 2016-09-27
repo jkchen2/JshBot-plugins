@@ -149,7 +149,7 @@ def build_single_text(bot, image_bytes, text_1):
     return image_bytes
 
 
-async def on_ready(bot):
+async def bot_on_ready_boot(bot):
     global left_red, right_red, left_green, right_green
     global text_a, text_b, text_c, text_d, font, alex_parent
 
@@ -165,3 +165,6 @@ async def on_ready(bot):
     text_d = alex_parent.crop((510, 0, 654, 32))
     font = ImageFont.truetype(
         '{}/plugins/plugin_data/DejaVuSansMono.ttf'.format(bot.path), 24)
+
+    permissions = {'attach_files': "Uploads `alexify` command results."}
+    utilities.add_bot_permissions(bot, __name__, **permissions)
