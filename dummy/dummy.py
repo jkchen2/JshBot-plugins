@@ -279,8 +279,19 @@ async def handle_active_message(bot, message_reference, extra):
 async def on_ready(bot):
     print("on_ready was called from dummy.py!")
 
+
 async def on_message_edit(bot, before, after):
     if (before.author != bot.user and
             configurations.get(bot, __name__, key='show_edited_messages')):
         print("Somebody edited their message from '{0}' to '{1}'.".format(
             before.content, after.content))
+
+
+async def bot_on_ready_boot(bot):
+    """This is called only once every time the bot is started (or reloaded)."""
+    # Use this to set up additonal permissions for the plugin
+    permissions = {
+        'read_messages': "This is a dummy additional permission.",
+        'change_nickname': "This allows the bot to change its own nickname."
+    }
+    utilities.add_bot_permissions(bot, __name__, **permissions)
