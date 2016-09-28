@@ -766,8 +766,15 @@ def cleaned_tag_name(name):
     return ''.join(cleaned_list).lower()
 
 
-async def on_ready(bot):
+async def bot_on_ready_boot(bot):
     """Sets up the configuration globals"""
     global use_global_tags, replace_commands
     use_global_tags = configurations.get(bot, __name__, 'global_tags')
     replace_commands = configurations.get(bot, __name__, 'replace_commands')
+
+    permissions = {
+        'attach_files': "Allows the tag list to be uploaded as a text file.",
+        'connect': "Allows the bot to connect to voice channels.",
+        'speak': "Allows the usage of sound tags."
+    }
+    utilities.add_bot_permissions(bot, __name__, **permissions)
