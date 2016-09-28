@@ -6,7 +6,7 @@ import math
 # Debugging
 import logging
 
-from riotwatcher import RiotWatcher
+from riotwatcher import RiotWatcher, RateLimit
 from riotwatcher import LoLException, error_429, error_404
 
 from jshbot import data, configurations, utilities
@@ -411,7 +411,7 @@ async def _format_match_data(
         blue_team['winner'], red_team['winner'] = blue_won, not blue_won
         red_team['bans'], blue_team['bans'] = [], []
         for team in match_details['teams']:
-            for ban in team['bans']:
+            for ban in team.get('bans', []):
                 champion_name = static[1].get(
                     str(ban['championId']), {}).get('name', 'Unknown')
                 if team['teamId'] == 100:
@@ -1211,9 +1211,14 @@ def get_static_data(watcher):
     champions.update(champions_named)
     return (champions, spells)
 
-async def on_ready(bot):
+async def bot_on_ready_boot(bot):
     # Obtain all static data required
-    watcher = RiotWatcher(configurations.get(bot, __name__, key='token'))
+    if configurations.get(bot, __name__, 'production_key'):
+        limits = (RateLimit(3000, 10), RateLimit(180000, 600))
+    else:
+        limits = (RateLimit(10, 10), RateLimit(500, 600))
+    watcher = RiotWatcher(
+        configurations.get(bot, __name__, key='token'), limits=limits)
     if not watcher.can_make_request():
         raise BotException(
             EXCEPTION, "The given Riot API token cannot get requests.",
@@ -1265,7 +1270,6 @@ async def on_ready(bot):
         "NORMAL_3x3": "8",
         "NORMAL_5x5_BLIND": "2",
         "NORMAL_5x5_DRAFT": "14",
-        "RANKED_SOLO_5x5": "4",
         "RANKED_PREMADE_5x5*": "6",
         "RANKED_PREMADE_3x3*": "9",
         "RANKED_TEAM_3x3": "41",
