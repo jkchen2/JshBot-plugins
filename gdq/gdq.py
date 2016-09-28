@@ -346,22 +346,26 @@ async def get_response(
     return (response, tts, message_type, extra)
 
 
-async def notify_loop(bot):
+async def bot_on_ready_boot(bot):
     """Notifies users that a game is about to be played."""
-    stream_url = configurations.get(bot, __name__, 'stream_url')
-    update_counter = 0
-    update_time = 10  # 10 minute update interval default
-    time_leeway = datetime.timedelta(minutes=10)  # 10 minute default
-    notify_message = [
-        "Heads up,",
-        "Just so you know,",
-        "Just letting you know,",
-        "Attention,",
-        "Ping!",
-        "Hey,"
-    ]
+    use_plugin = configurations.get(bot, __name__, key='enable')
 
-    while True:
+    if use_plugin:
+        stream_url = configurations.get(bot, __name__, 'stream_url')
+        update_counter = 0
+        update_time = 10  # 10 minute update interval default
+        time_leeway = datetime.timedelta(minutes=10)  # 10 minute default
+        notify_message = [
+            "Heads up,",
+            "Just so you know,",
+            "Just letting you know,",
+            "Attention,",
+            "Ping!",
+            "Hey,"
+        ]
+        await update_schedule(bot)
+
+    while use_plugin:
         current_time = datetime.datetime.utcnow()
         if update_counter >= update_time:
             await update_schedule(bot)
@@ -410,11 +414,3 @@ async def notify_loop(bot):
 
         await asyncio.sleep(60)
         update_counter += 1
-
-
-async def on_ready(bot):
-    use_plugin = configurations.get(bot, __name__, key='enable')
-    if use_plugin:
-        await update_schedule(bot)
-        asyncio.ensure_future(notify_loop(bot))
-        print("Starting GDQ notification loop.")
