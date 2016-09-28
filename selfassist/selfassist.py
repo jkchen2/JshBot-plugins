@@ -27,7 +27,8 @@ def get_commands():
             ('clean ?regex: ^', 'clean (regex <pattern>) <number>', 'Cleans '
              'the given number of messages that optionally match the given '
              'regex pattern.'),
-            ('clap', 'clap', 'Snark mode.')),
+            ('clap', 'clap', 'Snark mode.'),
+            ('ok', 'ok', 'ok')),
         shortcuts=Shortcuts(
             ('sb', '{}', '^', '<arguments>', '<arguments>')),
         description='Selfbot mode helper commands.', elevated_level=3,
@@ -115,9 +116,14 @@ async def get_response(
             response = 'Deleted {} message(s)'.format(len(matched_messages))
 
         elif blueprint_index == 3:  # Snark
-            response = ':clap:'
+            response = '​   :clap:'
             message_type = 3
             extra = 'snark', message
+
+        elif blueprint_index == 4:  # ok
+            response = ':neutral_face:'
+            message_type = 3
+            extra = 'ok', message
 
     elif base == 'texttools':
         message_type = 4  # Replace
@@ -129,9 +135,9 @@ async def get_response(
 
 async def handle_active_message(bot, message_reference, extra):
     if extra[0] == 'snark':
-        frame_open = ':raised_hand::hand_splayed:'
-        frame_closed = ':clap:'
-        offensive = ':middle_finger:'
+        frame_open = '​:raised_hand::hand_splayed:'
+        frame_closed = '​   :clap:'
+        offensive = '​:middle_finger::middle_finger:'
         try:
             await bot.delete_message(extra[1])
         except:
@@ -148,6 +154,25 @@ async def handle_active_message(bot, message_reference, extra):
                     message_reference = await bot.edit_message(
                         message_reference, frame_closed)
                 await asyncio.sleep(1)
+        except:
+            pass
+    if extra[0] == 'ok':
+        try:
+            await bot.delete_message(extra[1])
+        except:
+            pass
+        try:
+            for it in range(30):
+                await asyncio.sleep(random.randint(4, 6))
+                for it in range(random.randint(1, 2)):
+                    message_reference = await bot.edit_message(
+                        message_reference, ':expressionless:')
+                    await asyncio.sleep(0.05)
+                    message_reference = await bot.edit_message(
+                        message_reference, ':neutral_face:')
+                    await asyncio.sleep(0.1)
+                message_reference = await bot.edit_message(
+                    message_reference, ':neutral_face:')
         except:
             pass
 
@@ -180,7 +205,7 @@ async def filter_messages(
     return matched_messages
 
 
-async def on_ready(bot):
+async def bot_on_ready_boot(bot):
     """Set translation tables."""
     global translation_tables
 
