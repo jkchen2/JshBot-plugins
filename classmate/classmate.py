@@ -244,8 +244,11 @@ async def get_response(
     return (response, tts, message_type, extra)
 
 
-async def notify_loop(bot):
+async def bot_on_ready_boot(bot):
     """Notifies user when a course opens up every few minutes."""
+    global course_url_template
+    course_url_template = course_url_template.format(
+        **configurations.get(bot, __name__))
     while True:
         course_dictionary = data.get(bot, __name__, 'courses', default={})
 
@@ -291,11 +294,3 @@ async def notify_loop(bot):
             del course_dictionary[crn]
 
         await asyncio.sleep(5*60)
-
-
-async def on_ready(bot):
-    if bot.fresh_boot:
-        global course_url_template
-        course_url_template = course_url_template.format(
-            **configurations.get(bot, __name__))
-        await notify_loop(bot)
