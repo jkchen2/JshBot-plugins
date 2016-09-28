@@ -5,10 +5,11 @@ import time
 from jshbot.commands import Command, SubCommands
 from jshbot.exceptions import BotException
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 EXCEPTION = 'Diagnostics'
 
-
+recent_usages = 0
+recent_messages = 0
 looping = False
 
 
@@ -60,12 +61,11 @@ async def get_response(
 
 
 async def handle_active_message(bot, message_reference, extra):
-    global looping
+    global looping, recent_usages, recent_messages
     await asyncio.sleep(1)
     while looping:
         total_servers = len(bot.servers)
         voice_connections = len(bot.voice_clients)
-        edit_length = len(bot.edit_dictionary)
         data_size = get_size(bot.data)
         running_tasks = 0
         for t in asyncio.Task.all_tasks():
@@ -76,9 +76,24 @@ async def handle_active_message(bot, message_reference, extra):
             "Total servers: {1}\n"
             "Voice connections: {2}\n"
             "Recent usages: {3}\n"
+            "Recent messages: {6}\n"
             "Data size: {4} bytes\n"
             "Pending tasks: {5}```").format(
                 time.time(), total_servers, voice_connections,
-                edit_length, data_size, running_tasks)
+                recent_usages, data_size, running_tasks, recent_messages)
+        recent_usages = 0
+        recent_messages = 0
         await bot.edit_message(message_reference, update)
         await asyncio.sleep(60)
+
+
+async def bot_on_command(bot, command, parsed_input, author):
+    if looping:
+        global recent_usages
+        recent_usages += 1
+
+
+async def on_message(bot, message):
+    if looping:
+        global recent_messages
+        recent_messages += 1
