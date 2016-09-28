@@ -67,7 +67,7 @@ async def get_response(
                 bot, __name__, extra='statuses', extension='txt')
             status = random.choice(text.splitlines()).rstrip()
             try:
-                await bot.change_status(discord.Game(name=status))
+                await bot.change_presence(game=discord.Game(name=status))
             except Exception as e:
                 raise BotException(
                     EXCEPTION, "Failed to update the status.", e=e)
@@ -91,8 +91,8 @@ async def get_response(
             raise BotException(EXCEPTION, "Failed to update the name.", e=e)
     elif blueprint_index == 3:  # Change status
         try:
-            await bot.change_status(
-                discord.Game(name=arguments[0]) if arguments[0] else None)
+            await bot.change_presence(
+                game=discord.Game(name=arguments[0]) if arguments[0] else None)
             data.add(bot, __name__, 'status', arguments[0])
         except Exception as e:
             raise BotException(EXCEPTION, "Failed to update the status.", e=e)
@@ -106,5 +106,5 @@ async def on_ready(bot):
     """Checks to see if the status was set previously."""
     previous_status = data.get(bot, __name__, 'status')
     if previous_status:
-        await bot.change_status(discord.Game(name=previous_status))
+        await bot.change_presence(game=discord.Game(name=previous_status))
         logging.debug("Detected old status - setting it now!")
