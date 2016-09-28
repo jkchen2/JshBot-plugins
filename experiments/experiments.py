@@ -29,8 +29,7 @@ def get_commands():
             ('order', 'order', 'This should have higher priority.'),
             ('shortcutone', 'shortcutone', ''),
             ('shortcuttwo', 'shortcuttwo', ''),
-            ('^', '(aesthetic)', 'Make text aesthetic. Or do the test '
-             'function. Up to you, really.')),
+            ('^', '<stuff>', 'This changes a lot')),
         shortcuts=Shortcuts(
             ('short1', 'shortcutone', '', 'shortcutone', '')),
         description='Testing commands.', elevated_level=3, hidden=True,
@@ -100,18 +99,24 @@ async def get_response(
         elif blueprint_index == 2:  # shortcut 2
             response = "You reached shortcut 2!"
 
-        elif blueprint_index == 3:  # that's pretty aesthetic mate
-            response = ''
-            for character in arguments[0]:
-                if character.isalnum() and ord(character) < 128:
-                    response += chr(ord(character) + 65248)
-                elif character == ' ':
-                    response += '　'
-                else:
-                    response += character
-            message_type = 4
-            await utilities.notify_owners(
-                bot, "Somebody made {} aesthetic.".format(arguments[0]))
+        elif blueprint_index == 3:  # general test
+            response = await utilities.upload_to_discord(
+                bot, open('{}/command_reference.txt'.format(bot.path)))
+
+            '''
+            elif blueprint_index == 3:  # that's pretty aesthetic mate
+                response = ''
+                for character in arguments[0]:
+                    if character.isalnum() and ord(character) < 128:
+                        response += chr(ord(character) + 65248)
+                    elif character == ' ':
+                        response += '　'
+                    else:
+                        response += character
+                message_type = 4
+                await utilities.notify_owners(
+                    bot, "Somebody made {} aesthetic.".format(arguments[0]))
+            '''
 
         else:  # asyncio testing
             long_future = bot.loop.run_in_executor(None, long_function)
@@ -263,3 +268,7 @@ async def on_member_update(bot, before, after):
                 'was' if total_online == 1 else 'were', remaining)
             data.add(bot, __name__, 'online', total_online)
             await bot.edit_channel(channel, topic=text)
+
+
+async def bot_on_ready_boot(bot):
+    print("Started up fresh.")
