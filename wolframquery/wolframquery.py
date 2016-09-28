@@ -1,4 +1,3 @@
-import asyncio
 import urllib
 import random
 import io
@@ -124,7 +123,7 @@ def get_wolfram_pro_advertisement(full=False):
         return content + ' ' + link
 
 
-def check_advertisement(bot, location, destination_channel):
+def get_advertisement(bot, location, destination_channel):
     """Determines whether or not an advertisement should be sent.
 
     If an advertisement should be sent, it sends one (without blocking)."""
@@ -135,8 +134,7 @@ def check_advertisement(bot, location, destination_channel):
     if current_uses >= ad_uses - 1:  # Show advertisement
         if location.id in all_uses:
             del all_uses[location.id]
-        content = get_wolfram_pro_advertisement()
-        asyncio.ensure_future(bot.send_message(destination_channel, content))
+        return get_wolfram_pro_advertisement()
     else:
         all_uses[location.id] = current_uses + 1
 
@@ -378,12 +376,14 @@ async def get_response(
             text_result=text_result, extra_results=extra_results)
         if configurations.get(bot, __name__, 'ads'):
             location = message.server if message.server else message.channel
-            check_advertisement(bot, location, message.channel)
+            advertisement = get_advertisement(bot, location, message.channel)
+            if advertisement:
+                response = advertisement + '\n' + response
 
     return (response, tts, message_type, extra)
 
 
-async def on_ready_boot(bot):
+async def bot_on_ready_boot(bot):
     """Create a new wolframalpha client object and store in volatile data."""
     config = configurations.get(bot, __name__)
     client = wap.WolframAlphaEngine(config['api_key'], config['server'])
@@ -392,3 +392,6 @@ async def on_ready_boot(bot):
     client.FormatTimeout = config['format_timeout']
     data.add(bot, __name__, 'client', client, volatile=True)
     data.add(bot, __name__, 'uses', {}, volatile=True)
+
+    permissions = {'embed_links': "Show query results as an embedded image."}
+    utilities.add_bot_permissions(bot, __name__, **permissions)
