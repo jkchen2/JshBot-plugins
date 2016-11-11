@@ -1092,7 +1092,7 @@ async def get_chests(bot, static, name, region):
     for entry in mastery:  # Look for chests that can be obtained
         if not entry['chestGranted']:
             champion_name = static[1].get(
-                str(entry['championId'], {}).get('name', 'Unknown'))
+                str(entry['championId']), {}).get('name', 'Unknown')
             champions.append(champion_name)
     champions.sort()
 
