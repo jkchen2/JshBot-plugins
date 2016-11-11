@@ -1091,7 +1091,8 @@ async def get_chests(bot, static, name, region):
     champions = []
     for entry in mastery:  # Look for chests that can be obtained
         if not entry['chestGranted']:
-            champion_name = static[1][str(entry['championId'])]['name']
+            champion_name = static[1].get(
+                str(entry['championId'], {}).get('name', 'Unknown'))
             champions.append(champion_name)
     champions.sort()
 
@@ -1233,7 +1234,7 @@ async def bot_on_ready_boot(bot):
         "14": "Normal Draft",
         "4": "Dynamic Queue",
         "6": "Dynamic Queue",
-        "9": "Ranked 3v3",
+        "9": "Ranked Flex 3v3",
         "41": "Ranked 3v3",
         "42": "Ranked 5v5",
         "16": "This Gamemode doesn't even exist anymore",
@@ -1264,6 +1265,7 @@ async def bot_on_ready_boot(bot):
         "317": "Definitely Not Dominion",
         "400": "Normal (Draft)",
         "410": "Dynamic Queue",
+        "440": "Ranked Flex 5v5",
         "CUSTOM": "0",
         "NONE": "0",
         "NORMAL": "2",
@@ -1314,7 +1316,9 @@ async def bot_on_ready_boot(bot):
         "TEAM_BUILDER_DRAFT_UNRANKED_5x5": "400",
         "CAP_5x5": "400",
         "TEAM_BUILDER_DRAFT_RANKED_5x5": "410",
-        "RANKED_SOLO_5x5": "410"
+        "RANKED_SOLO_5x5": "410",
+        "RANKED_FLEX_TT": "9",
+        "RANKED_FLEX_SR": "440"
     }
 
     regions = {
