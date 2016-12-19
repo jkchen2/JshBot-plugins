@@ -50,8 +50,7 @@ Winner Elo Gain:
 [(weight_loser/weight_winner) * (70/pi * arctan(weight_loser/weight_winner))]/(ln(e + 1.01^(number_of_challenges_made)))
 
 Loser Elo Loss:
-[(weight_loser/weight_winner) * -(sqrt(70/pi) * arctan(weight_loser/weight_winner))]/(ln(e + 1.01^(number_of_challenges_made)))
-
+[(weight_loser/weight_winner) * -([70 * .998^(number_of_challenges_made)]/pi * arctan(weight_loser/weight_winner))]/(ln(e + 1.01^(number_of_challenges_made)))
 
 
 !challenge still uses same formula and whatnot,
