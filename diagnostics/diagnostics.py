@@ -5,7 +5,7 @@ import time
 from jshbot.commands import Command, SubCommands
 from jshbot.exceptions import BotException
 
-__version__ = '0.1.1'
+__version__ = '0.1.2'
 EXCEPTION = 'Diagnostics'
 
 recent_usages = 0
@@ -64,10 +64,11 @@ async def handle_active_message(bot, message_reference, extra):
     global looping, recent_usages, recent_messages
     await asyncio.sleep(1)
     while looping:
-        total_servers = len(bot.servers)
-        voice_connections = len(bot.voice_clients)
         data_size = get_size(bot.data)
-        running_tasks = 0
+        total_servers, voice_connections, running_tasks = 0, 0, 0
+        for instance in bot.all_instances:
+            total_servers += len(instance.servers)
+            voice_connections += len(instance.voice_clients)
         for t in asyncio.Task.all_tasks():
             if not t.done():
                 running_tasks += 1
