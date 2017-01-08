@@ -10,7 +10,7 @@ from jshbot import utilities, data, configurations
 from jshbot.commands import Command, SubCommands
 from jshbot.exceptions import BotException
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 EXCEPTION = 'GDQ plugin'
 uses_configuration = True
 
@@ -234,8 +234,10 @@ async def get_donation_data(bot):
 async def get_status(bot):
     """Gets the stream status and information."""
     api_url = configurations.get(bot, __name__, 'api_url')
+    client_id = configurations.get(bot, __name__, 'client_id')
     try:
-        stream_json = (await utilities.future(requests.get, api_url)).text
+        stream_json = (await utilities.future(
+            requests.get, api_url, headers={'Client-ID': client_id})).text
         stream_dictionary = json.loads(stream_json)
     except Exception as e:
         raise BotException(EXCEPTION, "Failed to retrieve stream data.", e=e)
@@ -332,8 +334,7 @@ async def get_response(
         response = await get_status(bot)
     elif blueprint_index == 7:  # notify
         response = toggle_notify(
-            bot, arguments[0], message,
-            use_channel='channel' in options)
+            bot, arguments[0], message, use_channel='channel' in options)
     elif blueprint_index == 0:  # general info
         response = (
             "GDQ (Games Done Quick) is a charity gaming marathon that brings "
@@ -357,6 +358,9 @@ async def bot_on_ready_boot(bot):
         time_leeway = datetime.timedelta(minutes=10)  # 10 minute default
         notify_message = [
             "Heads up,",
+            "Get ready,",
+            "Good news!",
+            "It's time!",
             "Just so you know,",
             "Just letting you know,",
             "Attention,",

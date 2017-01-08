@@ -2,7 +2,8 @@
     "enable": true,
     "schedule_url": "https://gamesdonequick.com/schedule",
     "api_url": "https://api.twitch.tv/kraken/streams/gamesdonequick",
-    "tracker_url": "https://gamesdonequick.com/tracker/18",
+    "tracker_url": "https://gamesdonequick.com/tracker/19",
     "stream_url": "https://www.twitch.tv/gamesdonequick",
-    "donate_url": "https://gamesdonequick.com/tracker/donate/18"
+    "donate_url": "https://gamesdonequick.com/tracker/donate/19",
+    "client_id": ""
 }
