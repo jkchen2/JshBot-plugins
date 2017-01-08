@@ -9,6 +9,8 @@ League of Legends Rank -> Value Conversion
 
 Unranked: 2.66
 
+Unranked: 2.66
+
 Bronze:
 	V:	1.00
 	IV:	1.33
@@ -34,23 +36,38 @@ Platinum
 	II:	7.00
 	I:	7.33
 Diamond
-	V:	7.66
-	IV:	8.50
-	III:	9.25
-	II:	10.5
-	I:	12
+	V:	7.5
+	IV:	8
+	III:	8.5
+	II:	9
+	I:	9.5
 Master/Challenger
-	13.5 + (LP / 87)
+	10.2 + (LP / 87)
 	
 Point Calculation:
 
-value = weight * [ln(champion_mastery_points) + ln(e + champion_ranked_sessions] * 0.9^(7-champion_mastery_level)
+REVISED FORMULA:
 
-Winner Elo Gain:
-[(weight_loser/weight_winner) * (70/pi * arctan(weight_loser/weight_winner))]/(ln(e + 1.01^(number_of_challenges_made)))
+rank := LoL Rank
+elo  := Challenge Minigame Elo
 
-Loser Elo Loss:
-[(weight_loser/weight_winner) * -([70 * .998^(number_of_challenges_made)]/pi * arctan(weight_loser/weight_winner))]/(ln(e + 1.01^(number_of_challenges_made)))
+weight_loser = rank_loser * elo_loser
+weight_winner = rank_winner * elo_winner
+
+If Higher RANK wins:
+WINNER
+(weight_loser/weight_winner) * (70/pi * arctan(weight_loser/weight_winner))
+
+LOSER
+(weight_loser/weight_winner) * -(70/pi * arctan(weight_loser/weight_winner))/(ln(e + 1.01^(number_of_challenges_made)))
+
+If Lower RANK wins:
+WINNER
+(weight_winner/weight_loser) * (70/pi * arctan(weight_winner/weight_loser))
+LOSER
+(weight_winner/weight_loser) * -(70/pi * arctan(weight_winner/weight_loser))/(ln(e + 1.01^(number_of_challenges_made)))
+
+
 
 
 !challenge still uses same formula and whatnot,
