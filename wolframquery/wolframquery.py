@@ -27,7 +27,7 @@ def get_commands():
              'for queries.'),
             ('units', 'units',
              'Toggles between metric and US standard units.'),
-            ('?text ?results: ^', '(text) (reslts <number of results>) '
+            ('?text ?results: ^', '(text) (results <number of results>) '
              '<query>', 'Uses Wolfram|Alpha to parse the given query. The '
              'number of results can be up to 8, and defaults to 3. Adding the '
              'text option gives you plaintext results that you can copy.')),
@@ -107,7 +107,7 @@ def get_wolfram_pro_advertisement(full=False):
             "solutions to help you ace your exams.",
             "Frequent Wolfram|Alpha user? Tailor your experience for your own "
             "needs with Wolfram|Alpha Pro!",
-            "Are your querries timing out? Wolfram|Alpha Pro extends "
+            "Are your queries timing out? Wolfram|Alpha Pro extends "
             "computation times.",
             "Need powerful visualization and analysis tools for your data? "
             "Wolfram|Alpha Pro is for you!",
@@ -342,7 +342,9 @@ async def get_response(
                     server_id=message.server.id, default=default_ip))
 
     elif blueprint_index == 2:  # toggle metric units
-        response = 'Not in quite yet...'
+        if message.server is None:
+            raise BotException(
+                EXCEPTION, "Cannot set units in a direct message.")
         default_units = configurations.get(bot, __name__, key='default_units')
         units = data.get(
             bot, __name__, 'server_units',
