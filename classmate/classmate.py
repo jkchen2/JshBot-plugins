@@ -7,7 +7,7 @@ from jshbot import utilities, configurations, data
 from jshbot.commands import Command, SubCommands
 from jshbot.exceptions import BotException
 
-__version__ = '0.1.2'
+__version__ = '0.1.3'
 EXCEPTION = 'Course Checker'
 course_url_template = (
     "http://courses.illinois.edu/cisapp/explorer/schedule/{year}/{semester}/"
@@ -140,7 +140,7 @@ async def _get_data(bot, department, course_number='', crn=''):
 
     status, text = await utilities.get_url(bot, complete_url)
     if status == 404:  # TODO: Suggest what wasn't found
-        raise BotException(EXCEPTION, "Course not found.")
+        raise BotException(EXCEPTION, "Course not found.", status)
     elif status != 200:
         raise BotException(EXCEPTION, "Something bad happened.", status)
     try:
@@ -227,6 +227,17 @@ async def get_crn_info(bot, *args):
             course_title, **section_details)
 
 
+async def _notify_users(bot, course_values, notification, urgent=False):
+    """Notifies course followers of a message."""
+    for user_id in course_values['notify_list']:
+        user = data.get_member(bot, user_id)
+        await bot.send_message(user, notification)
+        if urgent:
+            for it in range(5):
+                await bot.send_message(user, ":warning:")
+                await asyncio.sleep(1)
+
+
 async def get_response(
         bot, message, base, blueprint_index, options, arguments,
         keywords, cleaned_content):
@@ -255,10 +266,20 @@ async def bot_on_ready_boot(bot):
         crns_to_remove = []
         for course_crn, course_values in course_dictionary.items():
             try:
-                course_data = await _get_data(
-                    bot, *course_values['identity'])
+                course_data = await _get_data(bot, *course_values['identity'])
             except Exception as e:
                 logging.error("Failed to retrieve the course: " + str(e))
+                if (isinstance(e.error_other, tuple) and
+                        e.error_other[0] == 404):
+                    logging.debug("Notifying watchers of missing course.")
+                    crns_to_remove.append(course_crn)
+                    await _notify_users(
+                        bot, course_values,
+                        "{0[course_title]} ({1}) was not found. It may have "
+                        "been de-listed from the courses page. Please check "
+                        "to see if a section was changed. (You will be "
+                        "removed from the watch list for this course)".format(
+                            course_values, course_crn))
                 await asyncio.sleep(30)
                 continue
             try:
@@ -280,14 +301,10 @@ async def bot_on_ready_boot(bot):
                     notification = " (Restriction: {})".format(restriction)
                 else:  # Open
                     notification = " (No listed restrictions)"
-                for user_id in course_values['notify_list']:
-                    user = data.get_member(bot, user_id)
-                    await bot.send_message(
-                        user, "{0[course_title]} ({1}) is now open{2}".format(
-                            course_values, course_crn, notification))
-                    for it in range(5):
-                        await bot.send_message(user, ":warning:")
-                        await asyncio.sleep(1)
+                await _notify_users(
+                    bot, course_values,
+                    "{0[course_title]} ({1}) is now open{2}".format(
+                        course_values, course_crn, notification), urgent=True)
             await asyncio.sleep(1)
 
         for crn in crns_to_remove:
