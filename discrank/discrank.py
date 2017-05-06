@@ -6,15 +6,15 @@ import math
 # Debugging
 import logging
 
-from riotwatcher import RiotWatcher, RateLimit
-from riotwatcher import LoLException, error_429, error_404
+from riotwatchermod import RiotWatcher, RateLimit
+from riotwatchermod import LoLException, error_429, error_404
 
 from jshbot import data, configurations, utilities
 from jshbot.commands import Command, SubCommands, Shortcuts
 from jshbot.exceptions import ErrorTypes, BotException
 from jshbot.utilities import future
 
-__version__ = '0.1.9'
+__version__ = '0.1.10'
 EXCEPTION = 'Riot API plugin'
 uses_configuration = True
 
@@ -1205,7 +1205,7 @@ def get_static_data(watcher):
         raise BotException(
             EXCEPTION, "Failed to retrieve static data. Your Riot API "
             "token may be invalid or blacklisted - please check to make "
-            "sure you copied your key correctly!", e=e,
+            "sure you copied your key correctly!", e.response.content, e=e,
             error_type=ErrorTypes.STARTUP)
     champions_named = dict(
         (key.lower(), value) for key, value in champions_named.items())

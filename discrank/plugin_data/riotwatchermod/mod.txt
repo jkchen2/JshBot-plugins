@@ -1,0 +1,5 @@
+This is a modification of pseudonym117's Riot-Watcher Python wrapper for the Riot Games API.
+
+The original project is located here: https://github.com/pseudonym117/Riot-Watcher
+
+The modification primarily changes how booleans are sent in request parameters. That's it.
