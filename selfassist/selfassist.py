@@ -41,14 +41,16 @@ def get_commands():
             ('invert ^', 'invert <text>', 'Flips text.'),
             ('aesthetic ^', 'aesthetic <text>', 'Vaporwave.'),
             ('cursive ^', 'cursive <text>', 'The other fancy text.'),
-            ('zalgo ^', 'zalgo <text>', 'REALLY annoy people.')),
+            ('zalgo ^', 'zalgo <text>', 'REALLY annoy people.'),
+            ('acube ^', 'acube <text>', 'Aesthetic cube.')),
         shortcuts=Shortcuts(
             ('tt', '{}', '^', '<arguments>', '<arguments>'),
             ('tiny', 'tiny {}', '^', 'tiny <text>', '<text>'),
             ('fancy', 'fancy {}', '^', 'fancy <text>', '<text>'),
             ('invert', 'invert {}', '^', 'invert <text>', '<text>'),
             ('aesthetic', 'aesthetic {}', '^', 'aesthetic <text>', '<text>'),
-            ('cursive', 'cursive {}', '^', 'cursive <text>', '<text>')),
+            ('cursive', 'cursive {}', '^', 'cursive <text>', '<text>'),
+            ('acube', 'acube {}', '^', 'acube <text>', '<text>')),
         description='Annoy People: the Plugin', elevated_level=3,
         group='selfbot'))
 
@@ -127,8 +129,39 @@ async def get_response(
 
     elif base == 'texttools':
         message_type = 4  # Replace
-        table = translation_tables[blueprint_index]
-        response = cleaned_content.split(' ', 1)[1].translate(table)
+        if blueprint_index <= 5:
+            table = translation_tables[blueprint_index]
+            response = cleaned_content.split(' ', 1)[1].translate(table)
+        else:  # Aesthetic cube
+            table = translation_tables[3]
+            text = cleaned_content.split(' ', 1)[1].translate(table)
+            if len(text) < 5:
+                raise BotException(
+                    EXCEPTION, "Text must be at least 5 characters long.")
+            elif len(text) > 30:
+                raise BotException(
+                    EXCEPTION, "Text must be 30 characters long or fewer.")
+            mid = int((len(text) - 1)/2)
+            length = mid + len(text)
+            cube = [['　' for it0 in range(length)] for it1 in range(length+1)]
+            for it, character in enumerate(text):
+                cube[0][it + mid] = character
+                cube[it][mid] = character
+                cube[it + 1][mid + len(text) - 1] = character
+                cube[len(text)][it + mid] = character
+                cube[it + mid][0] = character
+                cube[mid][it] = character
+                cube[mid + len(text)][it] = character
+                cube[it + mid + 1][len(text) - 1] = character
+            for it in range(mid - 1):
+                cube[it + 1][mid - it - 1] = '／'
+                cube[it + 1][len(text) + mid - it - 2] = '／'
+                cube[len(text) + it + 1][mid - it - 1] = '／'
+                cube[len(text) + it + 1][len(text) + mid - it - 2] = '／'
+            lines = []
+            for character_list in cube:
+                lines.append(''.join(character_list).rstrip())
+            response = '\u200b' + '\n'.join(lines)
 
     return (response, tts, message_type, extra)
 
@@ -209,23 +242,22 @@ async def bot_on_ready_boot(bot):
     """Set translation tables."""
     global translation_tables
 
-    if bot.fresh_boot:
-        base_table = ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                      "1234567890!@#$%^&*()_+-=`~[]\\;',./{}|:\"<>? ")
-        changed_tables = [
-            "ᵃᵇᶜᵈᵉᶠᵍʰᶦʲᵏᶫᵐᶰᵒᵖᑫʳˢᵗᵘᵛʷˣʸᶻᴬᴮᶜᴰᴱᶠᴳᴴᴵᴶᴷᴸᴹᴺᴼᴾᑫᴿˢᵀᵁⱽᵂˣʸᶻ"
-            "¹²³⁴⁵⁶⁷⁸⁹⁰﹗@#﹩﹪^﹠﹡⁽⁾_+⁻⁼`~[]\\﹔',⋅/{}|﹕\"<>﹖ ",
-            "𝔞𝔟𝔠𝔡𝔢𝔣𝔤𝔥𝔦𝔧𝔨𝔩𝔪𝔫𝔬𝔭𝔮𝔯𝔰𝔱𝔲𝔳𝔴𝔵𝔶𝔷𝔄𝔅ℭ𝔇𝔈𝔉𝔊ℌℑ𝔍𝔎𝔏𝔐𝔑𝔒𝔓𝔔ℜ𝔖𝔗𝔘𝔙𝔚𝔛𝔜ℨ"
-            "1234567890!@#$%^&*()_+-=`~[]\\;',./{}|:\"<>? ",
-            "ɐqɔpǝɟƃɥıɾʞןɯuodbɹsʇnʌʍxʎzɐqɔpǝɟƃɥıɾʞןɯuodbɹsʇn𐌡ʍxʎz"
-            "1234567890¡@#$%^⅋*()_+-=`~[]\\;,‘./{}|:\"<>¿ ",
-            "ａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ"
-            "ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ"
-            "１２３４５６７８９０！＠＃＄％^＆＊（）_＋－＝`~[]\\"
-            "；＇，．／{}|：\"<>？　",
-            "𝒶𝒷𝒸𝒹𝑒𝒻𝑔𝒽𝒾𝒿𝓀𝓁𝓂𝓃𝑜𝓅𝓆𝓇𝓈𝓉𝓊𝓋𝓌𝓍𝓎𝓏𝒜𝐵𝒞𝒟𝐸𝐹𝒢𝐻𝐼𝒥𝒦𝐿𝑀𝒩𝒪𝒫𝒬𝑅𝒮𝒯𝒰𝒱𝒲𝒳𝒴𝒵"
-            "𝟣𝟤𝟥𝟦𝟧𝟨𝟩𝟪𝟫𝟢!@#$%^&*()_+-=`~[]\\;',./{}|:\"<>? "]
-        translation_tables = [  # WHY
-            str.maketrans(base_table, changed_table)
-            for changed_table in changed_tables
-        ]
+    base_table = ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                  "1234567890!@#$%^&*()_+-=`~[]\\;',./{}|:\"<>? ")
+    changed_tables = [
+        "ᵃᵇᶜᵈᵉᶠᵍʰᶦʲᵏᶫᵐᶰᵒᵖᑫʳˢᵗᵘᵛʷˣʸᶻᴬᴮᶜᴰᴱᶠᴳᴴᴵᴶᴷᴸᴹᴺᴼᴾᑫᴿˢᵀᵁⱽᵂˣʸᶻ"
+        "¹²³⁴⁵⁶⁷⁸⁹⁰﹗@#﹩﹪^﹠﹡⁽⁾_+⁻⁼`~[]\\﹔',⋅/{}|﹕\"<>﹖ ",
+        "𝔞𝔟𝔠𝔡𝔢𝔣𝔤𝔥𝔦𝔧𝔨𝔩𝔪𝔫𝔬𝔭𝔮𝔯𝔰𝔱𝔲𝔳𝔴𝔵𝔶𝔷𝔄𝔅ℭ𝔇𝔈𝔉𝔊ℌℑ𝔍𝔎𝔏𝔐𝔑𝔒𝔓𝔔ℜ𝔖𝔗𝔘𝔙𝔚𝔛𝔜ℨ"
+        "1234567890!@#$%^&*()_+-=`~[]\\;',./{}|:\"<>? ",
+        "ɐqɔpǝɟƃɥıɾʞןɯuodbɹsʇnʌʍxʎzɐqɔpǝɟƃɥıɾʞןɯuodbɹsʇn𐌡ʍxʎz"
+        "1234567890¡@#$%^⅋*()_+-=`~[]\\;,‘./{}|:\"<>¿ ",
+        "ａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ"
+        "ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ"
+        "１２３４５６７８９０！＠＃＄％^＆＊（）_＋－＝`~[]\\"
+        "；＇，．／{}|：\"<>？　",
+        "𝒶𝒷𝒸𝒹𝑒𝒻𝑔𝒽𝒾𝒿𝓀𝓁𝓂𝓃𝑜𝓅𝓆𝓇𝓈𝓉𝓊𝓋𝓌𝓍𝓎𝓏𝒜𝐵𝒞𝒟𝐸𝐹𝒢𝐻𝐼𝒥𝒦𝐿𝑀𝒩𝒪𝒫𝒬𝑅𝒮𝒯𝒰𝒱𝒲𝒳𝒴𝒵"
+        "𝟣𝟤𝟥𝟦𝟧𝟨𝟩𝟪𝟫𝟢!@#$%^&*()_+-=`~[]\\;',./{}|:\"<>? "]
+    translation_tables = [  # WHY
+        str.maketrans(base_table, changed_table)
+        for changed_table in changed_tables
+    ]
