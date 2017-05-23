@@ -95,7 +95,13 @@ def get_commands():
               'same arguments as get_response. The command will show up to '
               'all users in the help command, but can only be used by server '
               'owners, as it is disallowed in direct messages.',
-        elevated_level=2, allow_direct=False, function=custom_notify))
+        elevated_level=2, allow_direct=False, function=custom_notify,
+        group='demo'))
+
+    commands.append(Command(
+        'interact', SubCommands(('', '', '')),
+        other='Use this command to demo the wait_for_message functionality.',
+        group='demo'))
 
     return commands
 
@@ -232,6 +238,18 @@ async def get_response(
             raise BotException(
                 EXCEPTION, "This is a bug! You should never see this message.")
 
+    elif base == 'interact':
+        message_type = 6  # Use wait_for_message
+        # The extra argument should consist of a 2 element tuple with the first
+        #   element being the callback function, and the second being the
+        #   keyword arguments passed into wait_for_message
+        extra = (
+            custom_interaction,
+            {'timeout': 10, 'author': message.author},
+            None
+        )
+        response = "Say something, {}".format(message.author)
+
     return (response, tts, message_type, extra)
 
 
@@ -248,6 +266,22 @@ async def custom_notify(bot, message, *args):
     response = "Notified the owners with your message!"
 
     return (response, tts, message_type, extra)
+
+
+async def custom_interaction(bot, message_reference, reply, extra):
+    """This is called when the message_type is 6.
+
+    message_reference is the original message that can be edited.
+    The reply argument is the return value of bot.wait_for_message.
+    If the reply argument is None, the wait timed out.
+    """
+    if reply is None:
+        edit = 'You took too long to respond...'
+    elif reply.content:
+        edit = 'You replied with "{}"'.format(reply.content[:100])
+    else:
+        edit = 'You did not reply with any text!'
+    await bot.edit_message(message_reference, edit)
 
 
 async def handle_active_message(bot, message_reference, extra):
