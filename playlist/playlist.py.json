@@ -1,0 +1,5 @@
+{
+    "max_cutoff": 720,
+    "max_duration": 600,
+    "hard_cutoff": 1800
+}
