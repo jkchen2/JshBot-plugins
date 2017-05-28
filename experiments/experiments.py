@@ -249,27 +249,41 @@ async def get_response(
             except Exception as e:
                 raise BotException(EXCEPTION, "Not a valid dictionary.", e=e)
 
-        else:  # Default example in discordpy documentation
+        else:
             test_arguments = {
-                'title': None,
-                #'title': 'My Embed Title',
-                'description': 'My Embed Content.',
-                'colour': 0xFFFFFF,  # Originally 0xDEADBF
-                'timestamp': message.timestamp
+                'title': (
+                    ':arrow_forward: **[Track Title]**'),
+                    'description': '`[|||||||||||||--------]` **[ 1:55 / 3:07 ]**'
             }
         response = discord.Embed(**test_arguments)
-        response.set_author(
-            name='Someone', icon_url=bot.user.default_avatar_url)
-        response.add_field(name='name1', value='value1')
-        response.add_field(name='_', value='_', inline=False)
-        response.add_field(name='name3', value='value3')
-        response.add_field(name='name4', value='value4')
-        response.add_field(name='name5', value='value5')
-        response.add_field(name='name6', value='value6')
-        response.add_field(name='name7', value='value7')
-        response.set_image(url='https://discordapp.com/assets/2c21aeda16de354ba5334551a883b481.png')
-        response.set_thumbnail(url='https://discordapp.com/assets/2c21aeda16de354ba5334551a883b481.png')
-        response.set_footer(text='This is a test footer')
+        # response.set_author(
+        #     name='Someone', icon_url=bot.user.default_avatar_url)
+        response.add_field(
+            name='Added by <user>',
+            value=(
+                '10 minutes ago '
+                '[(Link)](https://www.google.com "https://www.google.com")'))
+        response.add_field(
+            name='4 listener(s)', value='Votes to skip: 0/3')
+        response.add_field(
+            name='7 tracks (runtime of ...):',
+            value=(
+                '**`1`**: (3:00) Another track\n'
+                '**`2`**: (3:00) Another track\n'
+                '**`3`**: (3:00) Another track\n'
+                '**`4`**: (3:00) Another track\n'
+                '**`5`**: (3:00) Another track\n'
+                '(2 more tracks | page 1/2)'),
+            inline=False)
+        response.add_field(
+            name='Notification:',
+            value=(
+                'The previous track was cut short because it '
+                'exceeded the cutoff threshold.'))
+        # response.add_field(name='_', value='_', inline=False)
+        # response.set_image(url='https://discordapp.com/assets/2c21aeda16de354ba5334551a883b481.png')
+        response.set_thumbnail(url='http://i.imgur.com/HCw86rq.png')
+        # response.set_footer(text='This is a test footer')
 
     elif base == 'animate':  # Animation test
         # response = await utilities.future(_animation_test, bot)
