@@ -1,5 +1,5 @@
 {
-    "max_cutoff": 720,
-    "max_duration": 600,
-    "hard_cutoff": 1800
+    "max_threshold": 720,
+    "max_cutoff": 600,
+    "hard_threshold": 1800
 }
