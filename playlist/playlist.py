@@ -299,7 +299,7 @@ class MusicPlayer():
         # Info
         if self.now_playing:
             # TODO: Possible remove redundant link portion?
-            new_name = 'Info'
+            new_name = 'Info:'
             time_ago = time.time() - self.now_playing['timestamp']
             new_value = 'Added by <@{}> {} ago [(Link)]({} "{}")'.format(
                 self.now_playing['userid'],
@@ -450,7 +450,10 @@ class MusicPlayer():
                 self.bot, track['downloadurl'])
             print("Download finished.")
         # TODO: Add exception handling
-        self.player = self.voice_client.create_ffmpeg_player(file_location)
+        ffmpeg_options = (
+            '-protocol_whitelist "file,http,https,tcp,tls"')
+        self.player = self.voice_client.create_ffmpeg_player(
+            file_location, before_options=ffmpeg_options)
         self.player.volume = self.volume
         self.player.start()
         utilities.set_player(self.bot, self.server.id, self.player)
