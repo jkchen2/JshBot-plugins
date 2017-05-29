@@ -916,7 +916,7 @@ async def handle_active_message(bot, message_reference, extra):
             raise BotException(
                 EXCEPTION,
                 "Song is longer than the hard threshold of {} seconds.".format(
-                    hard_cutoff))
+                    hard_threshold))
 
         response = "Song added to playlist."
         if duration > threshold:
