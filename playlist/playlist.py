@@ -12,7 +12,7 @@ from jshbot import utilities, configurations, data
 from jshbot.commands import Command, SubCommands, Shortcuts
 from jshbot.exceptions import BotException
 
-__version__ = '0.2.0'
+__version__ = '0.2.1'
 EXCEPTION = 'Music playlist'
 uses_configuration = True
 
@@ -267,7 +267,6 @@ class MusicPlayer():
     async def display_info(self):
         # Listeners
 
-
         # Tracklist
         tracklist = self._get_tracklist()
         total_tracks = len(tracklist)
@@ -410,13 +409,14 @@ class MusicPlayer():
                     self.track_index += 1
 
         else:  # Given track_index
-            if (not (self.mode is Modes.QUEUE and track_index == -1) and
-                    not 0 <= track_index < len(tracklist)):
+            if track_index != -1 and not 0 <= track_index < len(tracklist):
                 self.notification = (
                     "Index must be between 1 and {} inclusive.".format(
                         len(tracklist)))
                 asyncio.ensure_future(self.display_notification())
                 return
+            if track_index == -1 and self.mode is Modes.PLAYLIST:
+                track_index = len(tracklist) - 1
             if self.mode is Modes.PLAYLIST:
                 self.track_index = track_index
             else:
@@ -446,8 +446,32 @@ class MusicPlayer():
             asyncio.ensure_future(self.display_title())
             asyncio.ensure_future(self.display_info())
             print("Not found in cache. Downloading...")
-            file_location = await data.add_to_cache(
-                self.bot, track['downloadurl'])
+
+            try:
+                file_location = await data.add_to_cache(
+                    self.bot, track['downloadurl'])
+            except Exception as e:  # Attempt to redownload from base url
+                print("Failed to download the URL somehow. Attempting to redownload...")
+                self.bot.extra = e
+                options = {'format': 'bestaudio/best', 'noplaylist': True}
+                downloader = YoutubeDL(options)
+                try:
+                    info = await utilities.future(
+                        downloader.extract_info,
+                        track['url'], download=False)
+                    url = info['formats'][0]['url']
+                    file_location = await data.add_to_cache(self.bot, url)
+                except Exception as e:
+                    print("Failed to download the track twice. Failsafe skipping...", e)
+                    self.bot.extra = e
+                    self.notification = (
+                        "Failed to download the last track. "
+                        "Failsafe skipping...")
+                    asyncio.ensure_future(self.display_notification())
+                    self.state = States.PAUSED
+                    asyncio.ensure_future(self.play(track_index=0))
+                    return
+
             print("Download finished.")
         # TODO: Add exception handling
         ffmpeg_options = (
@@ -548,20 +572,17 @@ class MusicPlayer():
                 continue
 
             command = result.reaction.emoji
+            voice_members = self.voice_channel.voice_members
             if command != valid_commands[6]:
-                print("Removing reaction...")
-                try:
-                    await self.bot.remove_reaction(
-                        self.message, command, result.user)
-                except Exception as e:
-                    print("Failed to remove reaction:", e)
+                asyncio.ensure_future(self.bot.remove_reaction(
+                    self.message, command, result.user))
             if self.state is States.LOADING:
                 print("Ignoring command: player is still loading.")
                 continue
 
             if command in valid_commands[:3]:  # play|pause and skip
                 print("Play|pause and skip selected")
-                # User must be a moderator
+                # User must be a DJ
                 is_dj = await _is_dj(self.bot, self.server, result.user.id)
                 if not is_dj:
                     continue
@@ -587,13 +608,13 @@ class MusicPlayer():
             elif command == valid_commands[6]:  # Voteskip
                 print("Vote skip selected")
                 # Check user is in voice channel
-                # TODO: Implement
-                pass
+                if result.user not in voice_members:
+                    asyncio.ensure_future(self.bot.remove_reaction(
+                        self.message, command, result.user))
+                else:
+                    asyncio.ensure_future(self.display_info())
             else:
                 print("THIS SHOULD NEVER HAPPEN WHAT:", command)
-
-
-        # self.progress_task = asyncio.ensure_future(self._progress_updater())
 
 
 async def _is_dj(bot, server, user_id):
@@ -686,7 +707,9 @@ async def _get_info(bot, entry_index, message, music_player):
             title, track_info['url'], track_info['title'], track_member)
         info_text = "{} {}\n{}\n{}".format(
             response, track_link, duration_text, added_by_text)
+        music_player.page = int(index / 5)
         await music_player.display_notification(text=info_text)
+        await music_player.display_info()
         response = ''
     else:
         response += " {} ({})\n{}\n{}".format(
@@ -885,7 +908,7 @@ async def handle_active_message(bot, message_reference, extra):
         cutoff = data.get(
             bot, __name__, 'cutoff',
             server_id=server_id, default=default_cutoff)
-        options = {'format': 'worstaudio/worst', 'noplaylist': True}
+        options = {'format': 'bestaudio/best', 'noplaylist': True}
         downloader = YoutubeDL(options)
         try:
             info = await utilities.future(
