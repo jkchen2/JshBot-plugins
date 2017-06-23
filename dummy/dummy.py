@@ -6,7 +6,7 @@
 #
 # Hey there!
 #
-# This is dummy.py, or the whirlwind tour of what JshBot 0.3.x is about, and
+# This is dummy.py, or the whirlwind tour of what JshBot 0.4.x is about, and
 #   how it can be used.
 #
 # The file demonsrates how to create new commands with standard syntax,
@@ -23,45 +23,64 @@
 
 import asyncio
 
-from jshbot import utilities, configurations
-from jshbot.commands import Command, SubCommands, Shortcuts
-from jshbot.exceptions import BotException
+from jshbot import utilities, configurations, plugins
+from jshbot.exceptions import ConfiguredBotException
+from jshbot.commands import (
+    Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.1.0'
-EXCEPTION = 'Dummy'
-uses_configuration = False
+__version__ = '0.2.0'
+CBException = ConfiguredBotException('Dummy')
+uses_configuration = True
 
 
+# Apply this decorator to every function that returns a list of new commands
+@plugins.command_spawner
 def get_commands():
     """Returns a list of commands associated with this plugin."""
-    commands = []
+    new_commands = []
 
-    commands.append(Command(
-        'mycommand', SubCommands(
-            ('myoption', 'myoption', 'This is a simple command with a single '
-             'required option.'),
-            ('?custom ?attached:', '(custom) (attached <"attached argument">)',
-             'This has two different optional options, one without an '
-             'attached argument, and the other requiring an attached argument '
-             'if the option \'attached\' is specified.'),
-            ('trailing ::+', 'trailing <"arg 1"> <"arg 2"> <"arg 3"> '
-             '("arg 4") ("arg 5") (...)', 'This command requires lot of '
-             'trailing arguments.'),
-            ('grouped ^', 'grouped <grouped arguments>', 'This will group all '
-             'given arguments as a single string.'),
-            ('complex: ?other: :#', 'complex <"attached"> (other <"also '
-             'required">) <"arg 1"> ("arg 2") ("arg 3") (...)', 'The complex '
-             'option has a required positional argument, and the \'other\' '
-             'option has one too if it is specified. Additionally, there will '
-             'be a requirement of at least 1 trailing arguent.'),
-            ('marquee ^', 'marquee <text>', 'Create a marquee that loops '
-             'three times.')),
-        shortcuts=Shortcuts(
-            ('complex', 'complex {} other {} {} {}', ':::#',
-             '<"attached"> other <"other"> <"arg 1"> ("arg 2") (...)',
-             '<"attached"> <"other"> <"arg 1"> ("arg 2") (...)'),
-            ('marquee', 'marquee {}', '^',
-             'marquee <text>', '<text>')),
+    new_commands.append(Command(
+        'mycommand', subcommands=[
+            SubCommand(
+                Opt('myoption'),
+                doc='This is a simple command with a single required option.'),
+            SubCommand(
+                Opt('custom', optional=True),
+                Opt('attached', optional=True, attached='attached argument'),
+                doc='This has two different optional options, one without an attached '
+                    'parameter, and the other requiring an attached parameter.'),
+            SubCommand(
+                Opt('trailing'),
+                Arg('arg 1'),
+                Arg('arg 2'),
+                Arg('arg 3', argtype=ArgTypes.SPLIT, additional='more args'),
+                doc='This command requires a lot of trailing arguments.'),
+            SubCommand(
+                Opt('grouped'),
+                Arg('grouped arguments', argtype=ArgTypes.MERGED),
+                doc='This will group all given arguments as a single string.'),
+            SubCommand(
+                Opt('complex', attached='attached'),
+                Opt('other', optional=True, attached='also required'),
+                Arg('arg 1'),
+                Arg('arg 2', argtype=ArgTypes.SPLIT_OPTIONAL, additional='more args'),
+                doc='The complex option has a required attached parameter, and the '
+                    '\'other\' option also has a required attached parameter if '
+                    '\'other\' is included. Additionally, there will be a requirement '
+                    'of at least 1 trailing argument.'),
+            SubCommand(
+                Opt('marquee'),
+                Arg('text', argtype=ArgTypes.MERGED,
+                    check=lambda b, m, v, *a: len(v) <= 100,
+                    check_error="Marquee message must be less than 100 characters long."),
+                doc='Creates a marquee that loops 3 times.')],
+        shortcuts=[
+            Shortcut(
+                'complex', 'complex {attached} other {other} {arg 1} {arg 2}',
+                Arg('attached'), Arg('other'), Arg('arg 1'),
+                Arg('arg 2', argtype=ArgTypes.SPLIT_OPTIONAL)),
+            Shortcut(
+                'marquee', 'marquee {text}', Arg('text', argtype=ArgTypes.MERGED))],
         description='Your command description here.',
         other='This text is optional - it just shows up after everything '
               'else. Quick note, all of the commands here can only be used by '
@@ -69,16 +88,22 @@ def get_commands():
               'level of 2 would mean only server owners or above can use the '
               'command, and a level of 3 would restrict the command to only '
               'the bot owners.',
-        elevated_level=1, group='demo'))
+        elevated_level=1, category='demo'))
 
-    commands.append(Command(
-        'myothercommand', SubCommands(
-            ('&', '<text>', ''),
-            ('order matters', 'order matters', 'It is impossible to access '
-             'this command because the first subcommand will always be '
-             'satisfied first. Order of subcommands matters!'),
-            ('sample foo bar', 'sample foo bar', 'Also impossible to access. '
-             'This subcommand just adds some keywords to the command.')),
+    new_commands.append(Command(
+        'myothercommand', subcommands=[
+            SubCommand(
+                Arg('text', argtype=ArgTypes.MERGED_OPTIONAL),
+                doc='This traps all further commands from being executed.'),
+            SubCommand(
+                Opt('order'), Opt('matters'),
+                doc='It is impossible to access this command because the first '
+                    'subcommand will always be satisfied first. Order of the '
+                    'subcommand matters!'),
+            SubCommand(
+                Opt('sample'), Opt('foo'), Opt('bar'),
+                doc='Also impossible to access. This subcommand just adds some '
+                    'keywords to the command.')],
         description='Only bot owners can see this text!',
         other='Note that no shortcuts were defined. They, too, are optional. '
               'Also, this command is hidden, which means that only the bot '
@@ -87,35 +112,35 @@ def get_commands():
               'permissions level, any user can still execute the command. '
               'Users still will not be able to see the specific help for this '
               'command, though. Lastly, this command is disabled in DMs.',
-        hidden=True, allow_direct=False, group='demo'))
+        hidden=True, allow_direct=False, category='demo'))
 
-    commands.append(Command(
-        'notify', SubCommands(('^', '<text>', 'Notify the owners!')),
+    new_commands.append(Command(
+        'notify', subcommands=[
+            SubCommand(
+                Arg('text', argtype=ArgTypes.MERGED),
+                doc='Notify the owners with some text!')],
         other='This command uses a custom function. It is called with the '
               'same arguments as get_response. The command will show up to '
               'all users in the help command, but can only be used by server '
               'owners, as it is disallowed in direct messages.',
         elevated_level=2, allow_direct=False, function=custom_notify,
-        group='demo'))
+        category='demo'))
 
-    commands.append(Command(
-        'interact', SubCommands(('', '', '')),
-        other='Use this command to demo the wait_for_message functionality.',
-        group='demo'))
+    new_commands.append(Command(
+        'wait', other='Use this command to demo the wait_for functionality', category='demo'))
 
-    return commands
+    return new_commands
 
 
-async def get_response(
-        bot, message, base, blueprint_index, options, arguments,
-        keywords, cleaned_content):
+async def get_response(bot, context):
     """Gets a response given the parsed input.
 
-    Arguments:
+    context attributes:
     bot -- A reference to the bot itself.
     message -- The discord.message object obtained from on_message.
     base -- The base command name that immediately follows the invoker.
-    blueprint_index -- The index of the subcommand of the given base command.
+    subcommand -- The subcommand that matched the parameters.
+    index -- The index of the found subcommand.
     options -- A dictionary representing the options and potential positional
         arguments that are attached to them.
     arguments -- A list of strings that follow the syntax of the blueprint
@@ -126,188 +151,171 @@ async def get_response(
     """
 
     # This is what the bot will say when it returns from this function.
-    response = ''
+    # The response object can be manipulated in many ways. The attributes of
+    #   the response will be passed into the send function.
+    response = Response()
+    response.content = ''  # Default
 
     # Set to True if you want your message read with /tts (not recommended).
-    tts = False
+    response.tts = False  # Default
 
     # The message type dictates how the bot handles your returned message.
     #
-    #   0 - Regular message. This message can be edited, and the bot will
-    #       attempt to get a new response and replace the given message.
-    #       This is the default recommended behavior.
+    # NORMAL - Normal. The issuing command can be edited.
+    # PERMANENT - Message is not added to the edit dictionary.
+    # REPLACE - Deletes the issuing command after 'extra' seconds. Defaults
+    #   to 0 seconds if 'extra' is not given.
+    # ACTIVE - The message reference is passed back to the function defined
+    #   with 'extra_function'. If 'extra_function' is not defined, it will call
+    #   plugin.handle_active_message.
+    # INTERACTIVE - Assembles reaction buttons given by extra['buttons'] and
+    #   calls 'extra_function' whenever one is pressed.
+    # WAIT - Wait for event. Calls 'extra_function' with the result, or None
+    #   if the wait timed out.
     #
-    #   1 - Permanent message. This message cannot be edited by a user changing
-    #       their command. All types past this point are also non-editable.
-    #
-    #   2 - Terminal message. This message will self destruct in a defined
-    #       number of seconds based on the 'extra' variable. For example, if
-    #       message_type is set to 2, and extra is set to 10, the message will
-    #       be displayed for 10 seconds, then be deleted. If the 'extra'
-    #       variable is not set, it will default to 10 seconds.
-    #
-    #   3 - Active message. This message will be passed back to the plugin for
-    #       extra processing and editing. The function it will call is
-    #       handle_active_message(). See the comments for
-    #       handle_active_message() for more information.
-    #
-    message_type = 0
+    # Only the NORMAL message type can be edited.
+    response.message_type = MessageTypes.NORMAL  # Default
 
-    # The extra variable is used for the second and third message types.
-    extra = None
+    # The extra variable is used for some message types.
+    response.extra = None  # Default
 
     # Initially, check to make sure that you've matched the proper command.
     # If there is only one command specified, this may not be necessary.
-    if base == 'mycommand':
+    index, options, arguments = context.index, context.options, context.arguments
+    if context.base == 'mycommand':
 
-        # Then, the blueprint_index will tell you which command syntax was
+        # Then, the subcommand index will tell you which command syntax was
         #   satisfied. The order is the same as was specified initially.
-        if blueprint_index == 0:  # myoption
-            response = "You called the first subcommand!"
+        if index == 0:  # myoption
+            response.content = "You called the first subcommand!"
             # Do other stuff...
 
-        elif blueprint_index == 1:  # custom/attached
+        elif index == 1:  # custom/attached
             # To see if an optional option was included in the command, use:
             if 'custom' in options:
-                response += "You included the \"custom\" flag!\n"
+                response.content += "You included the \"custom\" flag!\n"
                 # Do stuff relevant to this flag here...
 
-            # To get the argument attached to an option, simply access it from
+            # To get the parameter attached to an option, simply access it from
             #   the options dictionary.
             if 'attached' in options:
-                response += "The attached argument: {}\n".format(
-                    options['attached'])
+                response.content += "The attached parmeter: {}\n".format(options['attached'])
 
             # In case somebody was looking for the help...
             if len(options) == 0:
-                invoker = utilities.get_invoker(bot, server=message.server)
-                response += "You didn't use either flag...\n"
-                response += "For help, try `{}help mycommand`".format(invoker)
+                invoker = utilities.get_invoker(bot, guild=context.guild)
+                response.content += ("You didn't use either flag...\n"
+                                     "For help, try `{}help mycommand`".format(invoker))
 
-        elif blueprint_index == 2:  # trailing arguments
+        elif index == 2:  # trailing arguments
             # If arguments are specified as trailing, they will be in a list.
-            response += "The list of trailing arguments: {}".format(arguments)
+            response.content += "The list of trailing arguments: {}".format(arguments)
 
-        elif blueprint_index == 3:  # grouped arguments
+        elif index == 3:  # grouped arguments
             # All arguments are grouped together as the first element
-            message_type = 1
-            response = ("You can't edit your command here.\n"
-                        "Single grouped argument: {}").format(arguments[0])
+            response.message_type = MessageTypes.PERMANENT
+            response.content = ("You can't edit your command here.\n"
+                                "Single grouped argument: {}").format(arguments[0])
 
-        elif blueprint_index == 4:  # complex
+        elif index == 4:  # complex
             # This mixes elements of both examples seen above.
-            response = ("The argument attached to the complex "
-                        "option: {}\n").format(options['complex'])
+            response.content = ("The argument attached to the complex "
+                                "option: {}").format(options['complex'])
             if 'other' in options:
-                response += "The other option has attached: {}\n".format(
-                    options['other'])
-            response += "Lastly, the trailing arguments: {}".format(arguments)
+                response.content += "\nThe other option has attached: {}".format(options['other'])
+            response.content += "\nLastly, the trailing arguments: {}".format(arguments)
 
-        elif blueprint_index == 5:  # (Very slow) marquee
-            # This demonstrates the active message type. Check
-            #   handle_active_message to see how it works.
-            text = arguments[0]
-            if not text or len(text) > 100 or '\n' in text:
-                response = ("Must have text 1-100 characters long, and must "
-                            "not have any new lines.")
-            else:
-                message_type = 3  # active
-                extra = ('marquee', text)
-                response = "Setting up marquee..."  # This will be shown first
+        elif index == 5:  # (Very slow) marquee
+            # This demonstrates the active message type.
+            # Check active_marquee to see how it works.
+            response.message_type = MessageTypes.ACTIVE
+            response.extra_function = active_marquee  # The function to call
+            response.extra = arguments[0]  # The text to use
+            response.content = "Setting up marquee..."  # This will be shown first
 
     # Here's another command base.
-    elif base == 'myothercommand':
+    elif context.base == 'myothercommand':
 
-        if blueprint_index == 0:  # keyword checker
+        if index == 0:  # keyword checker
             text = arguments[0]
             if not text:
-                response = "You didn't say anything...\n"
+                response.content = "You didn't say anything...\n"
             else:
-                response = "This is your input: {}\n".format(text)
-                if text in keywords:
-                    response += "Your input was in the list of keywords!\n"
+                response.content = "This is your input: {}\n".format(text)
+                if text in context.keywords:
+                    response.content += "Your input was in the list of keywords!\n"
                 else:
-                    response += ("Your input was not in the list of keywords. "
-                                 "They are: {}\n").format(keywords)
-
-            message_type = 2  # Self-destruct
-            extra = 15  # 15 seconds
-            response += "This message will self destruct in 15 seconds."
+                    response.content += ("Your input was not in the list of keywords. "
+                                         "They are: {}\n").format(context.keywords)
+            response.message_type = MessageTypes.PERMANENT
+            response.delete_after = 15
+            response.content += "This message will self destruct in 15 seconds."
 
         else:  # impossible command???
-            raise BotException(
-                EXCEPTION, "This is a bug! You should never see this message.")
+            raise CBException("This is a bug! You should never see this message.")
 
-    elif base == 'interact':
-        message_type = 6  # Use wait_for_message
-        # The extra argument should consist of a 2 element tuple with the first
-        #   element being the callback function, and the second being the
-        #   keyword arguments passed into wait_for_message
-        extra = (
-            custom_interaction,
-            {'timeout': 10, 'author': message.author},
-            None
-        )
-        response = "Say something, {}".format(message.author)
+    elif context.base == 'wait':
+        response.message_type = MessageTypes.WAIT
+        # The extra attribute should consist of a dictionary containing the
+        #   event and any other kwargs. Most notably, you will likely want to
+        #   define the check used in wait_for.
+        response.extra_function = custom_interaction
+        response.extra = {
+            'event': 'message',
+            'kwargs': {
+                'timeout': 30,  # Default 300
+                'check': lambda m: m.author == context.author,
+            }
+        }
+        response.content = "Say something, {}.".format(context.author)
 
-    return (response, tts, message_type, extra)
+    return response
 
 
-async def custom_notify(bot, message, *args):
+async def custom_notify(bot, context):
     """This is only called with the notify command.
 
     This function is called with the same arguments as get_response.
     """
-    response, tts, message_type, extra = ('', False, 0, None)
-
-    notify_message = '{0} from server {1} is sending you: {2}'.format(
-        message.author.display_name, message.server.name, args[3][0])
-    await bot.notify_owners(notify_message)
-    response = "Notified the owners with your message!"
-
-    return (response, tts, message_type, extra)
+    await utilities.notify_owners(
+            bot, '{0.author} from {0.guild}: {0.arguments[0]}'.format(context))
+    return Response(content="Notified the owners with your message!")
 
 
-async def custom_interaction(bot, message_reference, reply, extra):
-    """This is called when the message_type is 6.
+async def custom_interaction(bot, context, response, result):
+    """This is the function defined for the wait command.
 
-    message_reference is the original message that can be edited.
-    The reply argument is the return value of bot.wait_for_message.
-    If the reply argument is None, the wait timed out.
+    'context' and 'response' are familiar parameters used before. The only
+    difference is that the response message can now be obtained via
+    response.message
     """
-    if reply is None:
+    if result is None:  # Timed out
         edit = 'You took too long to respond...'
-    elif reply.content:
-        edit = 'You replied with "{}"'.format(reply.content[:100])
+    elif result.content:
+        edit = 'You replied with "{}"'.format(result.content[:100])
     else:
-        edit = 'You did not reply with any text!'
-    await bot.edit_message(message_reference, edit)
+        edit = 'You did not reply with any content text!'
+    await response.message.edit(content=edit)
 
 
-async def handle_active_message(bot, message_reference, extra):
-    """This is called if the given message was marked as active.
+async def active_marquee(bot, context, response):
+    """Handle the marquee active message."""
 
-    (message_type of 3).
-    """
-    if extra[0] == 'marquee':  # Handle the marquee active message
+    # Setup text with whitespace padding
+    total_length = 40 + len(response.extra)
+    text = '{0: ^{1}}'.format(response.extra, total_length)
+    for it in range(3):
+        for move in range(total_length - 20):
+            moving_text = '`|{:.20}|`'.format(text[move:])
+            await asyncio.sleep(1)  # Evenly distribute ratelimit
+            await response.message.edit(content=moving_text)
 
-        # Set text expanded with whitespace
-        total_length = 40 + len(extra[1])
-        text = '{0: ^{1}}'.format(extra[1], total_length)
-
-        # Loop through the text three times
-        for it in range(3):
-            for move in range(total_length - 20):
-                moving_text = '`|{:.20}|`'.format(text[move:])
-                await asyncio.sleep(1)  # Don't get rate limited!
-                await bot.edit_message(message_reference, moving_text)
-
-        # When the marquee is done, just display the text
-        await asyncio.sleep(1)
-        await bot.edit_message(message_reference, extra[1])
+    # When the marquee is done, just display the text
+    await asyncio.sleep(1)
+    await response.message.edit(content=response.extra)
 
 
-# If necessary, discord.Client events can be defined here, and they will be
+# If necessary, standard client events can be defined here, and they will be
 #   called appropriately. Be sure to include the bot argument first!
 
 async def on_ready(bot):

@@ -1,0 +1,2 @@
+# If enabled, show the edits the bot can see
+show_edited_messages: false
