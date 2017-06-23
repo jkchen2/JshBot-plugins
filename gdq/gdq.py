@@ -1,222 +1,237 @@
 import asyncio
+import discord
 import json
-import datetime
 import requests
 import random
+import datetime
+import time
 
+from collections import OrderedDict
 from bs4 import BeautifulSoup
 
-from jshbot import utilities, data, configurations
-from jshbot.commands import Command, SubCommands
-from jshbot.exceptions import BotException
+from jshbot import utilities, data, configurations, plugins
+from jshbot.exceptions import BotException, ConfiguredBotException
+from jshbot.commands import (
+    Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.1.1'
-EXCEPTION = 'GDQ plugin'
+__version__ = '0.2.0'
 uses_configuration = True
+CBException = ConfiguredBotException('GDQ plugin')
 
 
+@plugins.command_spawner
 def get_commands():
-    commands = []
+    new_commands = []
 
-    commands.append(Command(
-        'gdq', SubCommands(
-            ('', ' ', 'Gets some general information about GDQ.'),
-            ('schedule', 'schedule', 'Gets the link to the schedule.'),
-            ('donate', 'donate', 'Gets the link to the donation page.'),
-            ('next &', 'next (<number>)', 'Shows the next game in the '
-             'schedule. Up to 5 games can be displayed.'),
-            ('current', 'current', 'Shows the current game on the schedule.'),
-            ('search ^', 'search <game>', 'Searches for the given game.'),
-            ('status', 'status', 'Gets the stream status and total amount '
-             'of money raised.'),
-            ('notify ?channel ^', 'notify (channel) <game title>', 'Sends a '
-             'message to either the user or the channel for the given game '
-             'when it is about to be streamed (approximately 10 minutes).')),
-        description='Games Done Quick for Discord.', group='service'))
+    new_commands.append(Command(
+        'gdq', subcommands=[
+            SubCommand(doc='Shows the GDQ menu.'),
+            SubCommand(Opt('about'), doc='Shows some basic information about GDQ.'),
+            SubCommand(
+                Opt('status'),
+                doc='Shows the stream status and total amount amount of money raised.'),
+            SubCommand(Opt('current'), doc='Shows the current game being played.'),
+            SubCommand(
+                Opt('next'),
+                Arg('number', convert=int, check=lambda b, m, v, *a: 1 <= v <= 5,
+                    check_error='Must be between 1 and 5 inclusive.', default=1,
+                    argtype=ArgTypes.OPTIONAL, quotes_recommended=False),
+                doc='Shows the next game(s). If a number is given (between 1 and 5 '
+                    'inclusive), it will show the next number of games.'),
+            SubCommand(
+                Opt('search'), Arg('title', argtype=ArgTypes.MERGED),
+                doc='Searches for the given game.'),
+            SubCommand(
+                Opt('notify'),
+                Opt('channel', optional=True,
+                    check=lambda b, m, v, *a: data.is_mod(b, m.guild, m.author.id),
+                    check_error='Only bot moderators can notify the channel.'),
+                Arg('title', argtype=ArgTypes.MERGED),
+                doc='Sends a message to either the user or the channel for the given '
+                    'game when it is about to be streamed (approximately 5-10 minutes '
+                    'beforehand).\nOnly bot moderators can use the channel option.')],
+        description='Games Done Quick for Discord.', category='service'))
 
-    return commands
+    return new_commands
 
 
-def toggle_notify(bot, search, message, use_channel=False):
+async def _notify(bot, scheduled_time, payload, search, destination, late):
+    messageable = utilities.get_messageable(bot, destination)
+    if 'error' in payload:
+        text = payload['error']
+    elif time.time() > payload['end']:
+        text = (
+            "Sorry! I missed the notification for {}. You can "
+            "watch the VOD in a few days.").format(payload['text'])
+    else:
+        stream_url = configurations.get(bot, __name__, 'stream_url')
+        notify_message = [
+            "Heads up,", "Get ready,", "Good news!", "It's time!",
+            "Just so you know,", "Just letting you know,", "Attention,", "Ping!", "Hey,"]
+        text = "{} {} is about to be played soon. Watch the speedrun live at {}".format(
+            random.choice(notify_message), payload['text'], stream_url)
+    await messageable.send(content=text)
+
+
+def _toggle_notification(bot, game, context, use_channel=False):
     """Adds the user or channel to the notifications list."""
     if use_channel:
-        location_id = message.channel.id
+        destination = 'c{}'.format(context.channel.id)
+        destination_text = "This channel"
     else:
-        location_id = message.author.id
-    game = search_games(bot, search, return_game=True)
-    clean_title = utilities.get_cleaned_filename(game['game'], cleaner=True)
-    stream_url = configurations.get(bot, __name__, 'stream_url')
-    current_time = datetime.datetime.utcnow()
-    end_time = game['time'] + datetime.timedelta(seconds=game['seconds'])
-    notify_games = data.get(bot, __name__, 'notify_games', default={})
-    notification_pair = [location_id, use_channel]
+        destination = 'u{}'.format(context.author.id)
+        destination_text = "You"
+    key = game['key']
+    game_text = '{} ({})'.format(game['game'], game['type'])
+    pending_notification = utilities.get_schedule_entries(
+        bot, __name__, search=key, destination=destination)
+    if pending_notification:  # Remove from schedule
+        utilities.remove_schedule_entries(bot, __name__, search=key, destination=destination)
+        return "{} will no longer be notified when {} is about to be streamed.".format(
+            destination_text, game_text)
+    else:  # Add to schedule
+        stream_url = configurations.get(bot, __name__, 'stream_url')
+        current_time = datetime.datetime.utcnow()
+        start_time, end_time = game['scheduled'], game['end']
+        setup_delta = datetime.timedelta(seconds=game['setup_seconds'])
 
-    if (clean_title in notify_games and
-            notification_pair in notify_games[clean_title]):
-        notify_games[clean_title].remove(notification_pair)
-        if not notify_games[clean_title]:
-            del notify_games[clean_title]
-        return (
-            "{0} will be no longer be notified when {1} is about to be "
-            "streamed.").format(
-                'This channel' if use_channel else 'You', game['game'])
+        if current_time < start_time:
+            scheduled_seconds = start_time.replace(tzinfo=datetime.timezone.utc).timestamp()
+            delta = utilities.get_time_string(scheduled_seconds - time.time(), text=True)
+            info = 'GDQ game notification: {}'.format(game_text)
+            payload = {
+                'text': game_text,
+                'end': scheduled_seconds + game['seconds']}
+            utilities.schedule(
+                bot, __name__, scheduled_seconds, _notify, payload=payload,
+                search=key, destination=destination, info=info)
+            return (
+                "{} will be notified when {} is about to be streamed!\n"
+                "(In approximately {})".format(destination_text, game_text, delta))
 
-    if current_time < game['time'] - datetime.timedelta(minutes=10):
-
-        if not notify_games:
-            notify_games = {clean_title: [notification_pair]}
-            data.add(bot, __name__, 'notify_games', notify_games)
+        elif current_time < start_time + setup_delta:
+            return "The game is scheduled to start soon!\nWatch it at {}".format(stream_url)
+        elif current_time < end_time:
+            return "The game has already started!\nWatch it at {}".format(stream_url)
         else:
-            if clean_title in notify_games:
-                notify_games[clean_title].append(notification_pair)
-            else:
-                notify_games[clean_title] = [notification_pair]
-
-        return (
-            "{0} will be notified when {1} is about to be streamed!").format(
-                'This channel' if use_channel else 'You', game['game'])
-
-    elif current_time < game['time']:
-        return ("The game is scheduled to start soon!\n"
-                "Tune in now at {}".format(stream_url))
-    elif current_time < end_time:
-        return ("The game has already started!\n"
-                "You can watch it now at {}".format(stream_url))
-    else:
-        return "Sorry, this game has already been finished."
+            return "Sorry, this game has already been finished."
 
 
-def get_game_information(games):
-    """Formats the given games into a nice looking string."""
-    responses = []
+def _embed_games_information(bot, games, guild_id):
+    """Formats the given games into an embedded format."""
+    result = []
     current_time = datetime.datetime.utcnow()
     for game in games:
-        end_time = game['time'] + datetime.timedelta(seconds=game['seconds'])
+        start_time, end_time = game['scheduled'], game['end']
+        setup_delta = datetime.timedelta(seconds=game['setup_seconds'])
+        setup_time = start_time + setup_delta
 
-        if current_time < game['time']:  # Upcoming
-            play_title = "Upcoming"
-            begin_delta = game['time'] - current_time
-            begins_in = ''
-            delta_hours = int((begin_delta.seconds/3600) % 24)
-            delta_minutes = int((begin_delta.seconds/60) % 60)
-            if begin_delta.days:
-                begins_in += '{} day(s)'.format(begin_delta.days)
-            if delta_hours:
-                begins_in += '{0}{1} hour(s)'.format(
-                    ', ' if begins_in else '', delta_hours)
-            if delta_minutes:
-                begins_in += '{0}{1} minute(s)'.format(
-                    ', and ' if begins_in else '', delta_minutes)
-            if not begins_in:
-                begins_in = "a few moments!"
-            extra = (
-                '\n**Setup time:** {0[setup]}\n'
-                '**Scheduled:** {1.month}/{1.day} '
-                '{1.hour:02d}:{1.minute:02d}:{1.second:02d} UTC\n'
-                '**Begins in:** {2}').format(game, game['time'], begins_in)
+        extra = ''
+        if current_time < start_time:  # Upcoming
+            title = "Upcoming: "
+            seconds = (start_time - current_time).total_seconds()
+            if seconds > 60:
+                begins_in = utilities.get_time_string(seconds, text=True, full=False)
+            else:
+                begins_in = 'a few moments!'
+            offset, adjusted_time = utilities.get_timezone_offset(
+                bot, guild_id, utc_dt=start_time, as_string=True)
+            scheduled = '{} [{}]'.format(adjusted_time.strftime('%a %I:%M %p'), offset)
+            extra = '\n\tStarts {} ({})'.format(scheduled, begins_in)
+
+        elif current_time <= setup_time:  # In setup
+            title = "Setting up: "
 
         elif current_time < end_time:  # Current
-            play_title = "Current"
-            remaining_delta = end_time - current_time
-            remaining_time_detailed = [
-                int((remaining_delta.seconds/3600) % 24),
-                int((remaining_delta.seconds/60) % 60),
-                int(remaining_delta.seconds % 60)]
-            current_delta = current_time - game['time']
-            current_time_detailed = [
-                int((current_delta.seconds/3600) % 24),
-                int((current_delta.seconds/60) % 60),
-                int(current_delta.seconds % 60)]
-            extra = (
-                '\n**Remaining time:** {0[0]}:{0[1]:02d}:{0[2]:02d}\n'
-                '**Current time:** {1[0]}:{1[1]:02d}:{1[2]:02d}').format(
-                    remaining_time_detailed, current_time_detailed)
+            title = "Current: "
+            current_seconds = (current_time - start_time - setup_delta).total_seconds()
+            extra = '\n\tCurrently at {}'.format(utilities.get_time_string(current_seconds))
 
         else:  # Finished
-            play_title = "Finished"
-            extra = ''
+            title = "Finished: "
 
-        responses.append((
-            '**{0} game:** {1[game]}\n'
-            '**Speedrun type:** {1[type]}\n'
-            '**Runner(s):** {1[runners]}\n'
-            '**Estimated time:** {1[estimation]}'
-            '{2}').format(play_title, game, extra))
+        title += '{}{}'.format(game['game'], ' ({})'.format(game['type']) if game['type'] else '')
+        value = '\u200b\tRun by {} in {}'.format(game['runners'], game['estimation']) + extra
+        result.append((title, value))
 
-    return '\n\n'.join(responses)
+    return result
 
 
-def update_latest_index(bot, include_setup_status=False):
+def _update_current_game(bot, safe=False, include_setup_status=False):
     """Updates the index of the latest/current game."""
-    schedule_data = data.get(bot, __name__, 'schedule_data', volatile=True)
-    latest_index = data.get(bot, __name__, 'current', volatile=True, default=0)
+    schedule_data = data.get(bot, __name__, 'schedule', volatile=True, default=[])
     current_time = datetime.datetime.utcnow()
-    for index, game in enumerate(schedule_data[latest_index:]):
-
-        # Update the latest index
-        end_time = game['time'] + datetime.timedelta(seconds=game['seconds'])
-        if current_time < end_time:
-            latest_index += index
-            data.add(bot, __name__, 'current', latest_index, volatile=True)
+    for index, game in enumerate(schedule_data):
+        start_time, end_time = game['scheduled'], game['end']
+        if start_time <= current_time < end_time:  # Update latest index
+            data.add(bot, __name__, 'current_index', index, volatile=True)
+            data.add(bot, __name__, 'current_game', game, volatile=True)
             if include_setup_status:
-                return (latest_index, current_time < game['time'])
+                setup_time = datetime.timedelta(seconds=game['setup_seconds'])
+                return index, (current_time < start_time + setup_time)
             else:
-                return latest_index
+                return index
+        elif current_time < start_time:
+            print("The current time is less than the start time. Index:", index)
+            break
+    else:  # GDQ over, or past schedule
+        game, index = None, 999
+    if safe:
+        data.add(bot, __name__, 'current_index', index, volatile=True)
+        data.add(bot, __name__, 'current_game', game, volatile=True)
+        if include_setup_status:
+            return index, True
+        else:
+            return index
+    raise CBException("No current game was found.")
 
-    raise BotException(EXCEPTION, "No current game was found.")
+
+def _get_current_game(bot, guild_id):
+    latest_index = _update_current_game(bot)
+    schedule_data = data.get(bot, __name__, 'schedule', volatile=True)
+    return _embed_games_information(bot, [schedule_data[latest_index]], guild_id)
 
 
-async def get_games(bot, next_game=False, extra=0):
+def _get_next_games(bot, retrieve, guild_id):
     """Gets the current/next game(s) and the defined number of extra games."""
-    if extra not in (0, ''):
-        try:
-            extra = int(extra)
-        except:
-            raise BotException(EXCEPTION, "That is not a valid integer.")
-        if extra < 1 or extra > 5:
-            raise BotException(
-                EXCEPTION, "Can only list between [1-5] inclusive.")
-        extra -= 1
-    else:
-        extra = 0
-    latest_index, setup = update_latest_index(bot, include_setup_status=True)
-    schedule_data = data.get(bot, __name__, 'schedule_data', volatile=True)
-    if next_game and not setup:
+    latest_index, in_setup = _update_current_game(bot, safe=True, include_setup_status=True)
+    schedule_data = data.get(bot, __name__, 'schedule', volatile=True, default=[])
+    if not in_setup:
         latest_index += 1
-    games_list = schedule_data[latest_index:latest_index + extra + 1]
-    games_information = get_game_information(games_list)
-    if games_information:
-        return games_information
+    games_list = schedule_data[latest_index:latest_index + retrieve]
+    embed_data = _embed_games_information(bot, games_list, guild_id)
+    if embed_data:
+        return embed_data
     else:
-        raise BotException(
-            EXCEPTION, "{} game information not found.".format(
-                'Upcoming' if setup else 'Current'))
+        raise CBException("Game information not found.")
 
 
-def search_games(bot, search, return_game=False):
+def _search_games(bot, search, guild_id=None, return_game=False):
     """Searches the schedule for the given game and gets the information."""
     cleaned_search = utilities.get_cleaned_filename(search, cleaner=True)
-    schedule_data = data.get(bot, __name__, 'schedule_data', volatile=True)
-    games = data.get(bot, __name__, 'game_list', volatile=True, default=[])
+    schedule_data = data.get(bot, __name__, 'schedule', volatile=True)
     found_games = []
-    for index, game in enumerate(games):
-        if cleaned_search in game:
-            found_games.append(schedule_data[index])
+    for index, game in enumerate(schedule_data):
+        if cleaned_search == game['key']:
+            found_games = [game]
+            break
+        elif cleaned_search in game['key']:
+            found_games.append(game)
     if not found_games:
-        raise BotException(EXCEPTION, "No games found with that name.")
+        raise CBException("No games found with that name.")
     elif len(found_games) > 10:
-        raise BotException(EXCEPTION, "Too many games found with that name.")
+        raise CBException("Too many games found with that name.")
     elif len(found_games) != 1:
-        raise BotException(
-            EXCEPTION, "Multiple games found:",
-            '\n'.join([game['game'] for game in found_games]))
+        raise CBException(
+            "Multiple games found:", '\n'.join(
+                ['{} ({})'.format(game['game'], game['type'])  for game in found_games]))
     elif return_game:
         return found_games[0]
     else:
-        return get_game_information(found_games)
+        return _embed_games_information(bot, found_games, guild_id)[0]
 
 
-async def get_donation_data(bot):
+async def _get_donation_data(bot):
     """Gets the current donation information, like total raised."""
     tracker_url = configurations.get(bot, __name__, 'tracker_url')
     try:
@@ -227,42 +242,54 @@ async def get_donation_data(bot):
         total_donations = total_donations.strip('()')
         max_average = donation_text[3]
     except Exception as e:
-        raise BotException(EXCEPTION, "Failed to retrieve donation data.", e=e)
+        raise CBException("Failed to retrieve donation data.", e=e)
     return (total_raised, total_donations, max_average)
 
 
-async def get_status(bot):
+async def _get_status(bot, raised_only=False):
     """Gets the stream status and information."""
     api_url = configurations.get(bot, __name__, 'api_url')
     client_id = configurations.get(bot, __name__, 'client_id')
-    try:
-        stream_json = (await utilities.future(
-            requests.get, api_url, headers={'Client-ID': client_id})).text
-        stream_dictionary = json.loads(stream_json)
-    except Exception as e:
-        raise BotException(EXCEPTION, "Failed to retrieve stream data.", e=e)
-    stream_data = stream_dictionary['stream']
-    status = "Online" if stream_data else "Offline"
-    viewers = stream_data['viewers'] if stream_data else 0
-    donation_data = await get_donation_data(bot)
-    return (
-        "**Stream status:** {0}\n"
-        "**Viewers:** {1}\n"
-        "**Total raised:** {2}\n"
-        "**Total donations:** {3}\n"
-        "**Max / Average donation:** {4}").format(
-            status, viewers, *donation_data)
+    if not raised_only:
+        try:
+            stream_json = (await utilities.future(
+                requests.get, api_url, headers={'Client-ID': client_id})).text
+            stream_dictionary = json.loads(stream_json)
+        except Exception as e:
+            raise CBException("Failed to retrieve stream data.", e=e)
+        stream_data = stream_dictionary['stream']
+        status = "Online" if stream_data else "Offline"
+        viewers = stream_data['viewers'] if stream_data else 0
+    donation_stats = await _get_buffered_donation_stats(bot)
+    if raised_only:
+        return "**Total raised:** {}".format(total_raised)
+    else:
+        return (
+            "**Stream:** {0}\n"
+            "**Viewers:** {1}\n"
+            "**Total raised:** {2}\n"
+            "**Total donations:** {3}\n"
+            "**Max / Average donation:** {4}").format(status, viewers, *donation_stats)
 
 
-async def update_schedule(bot):
+async def _update_schedule(bot):
     """Reads the GDQ schedule and updates the information in the database."""
+    # TODO: Revert
+    '''
     schedule_url = configurations.get(bot, __name__, 'schedule_url')
     html_data = (await utilities.future(requests.get, schedule_url)).text
+    '''
+    with open('/home/jsh/Documents/gdq_schedule.html') as gdq_data:
+        html_data = gdq_data.read()
     soup = BeautifulSoup(html_data, 'html.parser')
     run_table = soup.find('table', {'id': 'runTable'})
     schedule_data = []
     game_list = []
 
+    if run_table is None:
+        raise CBException('Run table not found!')
+
+    current_data = {}
     for entry in run_table.find_all('tr'):
         entry_class = entry.get('class', [''])[0]
 
@@ -276,145 +303,232 @@ async def update_schedule(bot):
             estimation_seconds = (int(split_estimate[0])*3600 +
                                   int(split_estimate[1])*60 +
                                   int(split_estimate[2]))
-            schedule_data[-1].update({
+            end_time = (
+                current_data['scheduled'] + datetime.timedelta(
+                    seconds=(estimation_seconds + current_data['setup_seconds'])))
+            key_name = utilities.get_cleaned_filename(
+                current_data['game'] + run_type, cleaner=True)
+            current_data.update({
                 'estimation': estimation.strip(),
                 'seconds': estimation_seconds,
-                'type': run_type
+                'type': run_type,
+                'end': end_time,
+                'key': key_name
             })
+            game_list.append(key_name)
+            schedule_data.append(current_data)
 
-        else:
+        else:  # Happens first
             while len(subentries) < 4:
                 subentries.append('')
             start_time_string, game, runners, setup_time = subentries
-            start_time = datetime.datetime.strptime(
-                start_time_string, '%Y-%m-%dT%H:%M:%SZ')
-            schedule_data.append({
-                'time': start_time,
+            start_time = datetime.datetime.strptime(start_time_string, '%Y-%m-%dT%H:%M:%SZ')
+            setup_time = setup_time.strip()
+            split_setup = setup_time.split(':')
+            if len(split_setup) > 1:
+                setup_seconds = (int(split_setup[0])*3600 +
+                                 int(split_setup[1])*60 +
+                                 int(split_setup[2]))
+            else:
+                setup_seconds = 0
+            current_data = {
+                'scheduled': start_time - datetime.timedelta(weeks=2),  # TODO: Remove debug
                 'game': game,
                 'runners': runners,
-                'setup': setup_time.strip()
-            })
-            game_list.append(
-                utilities.get_cleaned_filename(game, cleaner=True))
+                'setup': setup_time,
+                'setup_seconds': setup_seconds
+            }
 
     # Add finale entry
-    schedule_data[-1].update({
-        'estimation': '2:00:00',
-        'seconds': 60*120,
-        'type': 'Party%',
-        'setup': 'n/a'
+    run_type = 'Party%'
+    end_time = current_data['scheduled'] + datetime.timedelta(minutes=30)
+    key_name = utilities.get_cleaned_filename(current_data['game'] + run_type, cleaner=True)
+    current_data.update({
+        'estimation': '0:30:00',
+        'seconds': 60*30,
+        'end': end_time,
+        'type': run_type,
+        'key': key_name
     })
+    game_list.append(key_name)
+    schedule_data.append(current_data)
+
+    # Update scheduled notifications
+    entries = utilities.get_schedule_entries(bot, __name__)
+    for entry in entries:
+        payload, key = entry[3:5]
+        if key not in game_list:  # Not found error
+            print("Game not found. Key changed?", key)  # TODO: Conduct live test
+            error_message = (
+                ":warning: Warning: The game {} has been removed, renamed, or "
+                "recategorized. You have been removed from the notification list "
+                "for this game. Please check the schedule at {}.".format(
+                    payload['text'], configurations.get(bot, __name__, 'schedule_url')))
+            utilities.update_schedule_entries(
+                bot, __name__, search=key, payload={'error': error_message}, time=time.time())
+        else:
+            game = schedule_data[game_list.index(key)]
+            start_time, end_time = game['scheduled'], game['end']
+            setup_delta = datetime.timedelta(seconds=game['setup_seconds'])
+            scheduled = start_time.replace(tzinfo=datetime.timezone.utc).timestamp()
+            current_time = datetime.datetime.utcnow()
+            if start_time + setup_delta < current_time < end_time:
+                stream_url = configurations.get(bot, __name__, 'stream_url')
+                payload = {'error': (
+                        "Uh oh. The schedule shifted drastically and I didn't notice "
+                        "fast enough - sorry! {} is live right now at {}").format(
+                            payload['text'], stream_url)}
+            else:
+                payload.update({'end': scheduled + game['seconds']})
+            utilities.update_schedule_entries(
+                bot, __name__, search=key, payload=payload, time=scheduled)
 
     # Save data
-    data.add(bot, __name__, 'schedule_data', schedule_data, volatile=True)
-    data.add(bot, __name__, 'game_list', game_list, volatile=True)
+    data.add(bot, __name__, 'schedule', schedule_data, volatile=True)
+    try:
+        _update_current_game(bot)
+    except:
+        pass
 
 
-async def get_response(
-        bot, message, base, blueprint_index, options, arguments,
-        keywords, cleaned_content):
-    response, tts, message_type, extra = ('', False, 0, None)
+async def _update_menu(bot, response):
+    while response.update_stats:
+        donation_stats = await _get_buffered_donation_stats(bot)
+        value = (
+            "Total raised: {}\n"
+            "Total donations: {}\n"
+            "Max / Average donation: {}").format(*donation_stats)
+        response.embed.set_field_at(0, name='Donation stats', value=value, inline=False)
+        try:
+            await response.message.edit(embed=response.embed)
+        except:
+            return
+        await asyncio.sleep(60)
 
-    use_plugin = configurations.get(bot, __name__, 'enable')
+
+async def gdq_menu(bot, context, response, result, timed_out):
+    if timed_out:
+        response.update_stats = False
+        if response.update_task:
+            response.update_task.cancel()
+        return
+    if not result and not response.update_task:
+        response.update_task = asyncio.ensure_future(_update_menu(bot, response))
+        return
+    selection = ['⬅', '⏺', '➡'].index(result[0].emoji)
+    schedule_data = data.get(bot, __name__, 'schedule', volatile=True)
+    guild_id = context.guild.id if context.guild else None
+
+    if selection in (0, 2):  # Page navigation
+        offset = -5 if selection == 0 else 5
+        response.game_index = max(min(response.game_index + offset, len(schedule_data) - 5), 0)
+    else:
+        response.game_index = data.get(bot, __name__, 'current_index', volatile=True, default=0)
+    games_list = schedule_data[response.game_index:response.game_index + 5]
+    game_data = _embed_games_information(bot, games_list, guild_id)
+    value = '\n\n'.join(
+        '**[{}] {}**\n{}'.format(it+response.game_index+1, *c) for it, c in enumerate(game_data))
+    response.embed.set_field_at(1, name='Schedule', value=value, inline=False)
+    await response.message.edit(embed=response.embed)
+
+
+async def get_response(bot, context):
+    response = Response()
+    use_plugin = configurations.get(bot, __name__, key='enable')
     if not use_plugin:
-        response = (
-            "The GDQ plugin is currently disabled. (GDQ is probably "
-            "over or hasn't started yet)")
-    elif blueprint_index == 1:  # schedule
-        response = configurations.get(bot, __name__, 'schedule_url')
-    elif blueprint_index == 2:  # donate
-        response = configurations.get(bot, __name__, 'donate_url')
-    elif blueprint_index == 3:  # next
-        response = await get_games(bot, next_game=True, extra=arguments[0])
-    elif blueprint_index == 4:  # current
-        response = await get_games(bot)
-    elif blueprint_index == 5:  # search
-        response = search_games(bot, arguments[0])
-    elif blueprint_index == 6:  # status
-        response = await get_status(bot)
-    elif blueprint_index == 7:  # notify
-        response = toggle_notify(
-            bot, arguments[0], message, use_channel='channel' in options)
-    elif blueprint_index == 0:  # general info
-        response = (
-            "GDQ (Games Done Quick) is a charity gaming marathon that brings "
-            "together speedrunners from around the globe to raise money on a "
-            "livestream.\nThey are currently supporting Doctors Without "
-            "Borders, and all donations go directly to the charity.\nCheck "
-            "out GDQ at https://gamesdonequick.com and the Twitch stream at "
-            "{}").format(configurations.get(bot, __name__, 'stream_url'))
+        response.content = (
+            "The GDQ plugin is currently disabled. (GDQ is probably over or hasn't started yet)")
+        return response
 
-    return (response, tts, message_type, extra)
+    embed_template = discord.Embed(
+        title='Games Done Quick', url='https://gamesdonequick.com/',
+        colour=discord.Colour(0x00aff0),
+        description='\[ [Stream]({}) ] \[ [Schedule]({}) ] \[ [Donate]({}) ]'.format(
+            configurations.get(bot, __name__, 'stream_url'),
+            configurations.get(bot, __name__, 'schedule_url'),
+            configurations.get(bot, __name__, 'donate_url')))
+    embed_template.set_thumbnail(url='http://i.imgur.com/GcdqhUR.png')
+    guild_id = context.guild.id if context.guild else None
+    if context.index == 0:
+        embed_template.add_field(name='Donation stats', value='Loading...', inline=False)
+        response.game_index = data.get(bot, __name__, 'current_index', volatile=True, default=0)
+        schedule_data = data.get(bot, __name__, 'schedule', volatile=True)
+        games_list = schedule_data[response.game_index:response.game_index + 5]
+        game_data = _embed_games_information(bot, games_list, guild_id)
+        value = '\n\n'.join('**{}**\n{}'.format(*it) for it in game_data)
+        embed_template.add_field(name='Schedule', value=value, inline=False)
+        response.update_stats = True
+        response.update_task = None
+        response.message_type = MessageTypes.INTERACTIVE
+        response.extra_function = gdq_menu
+        response.extra = {'buttons': ['⬅', '⏺', '➡']}
+
+    elif context.index == 1:  # About
+        embed_template.add_field(name='About', value=(
+            "Games Done Quick (GDQ) is a week-long charity gaming marathon that "
+            "brings together speedrunners from around the globe to raise money on a "
+            "livestream. They are currently supporting {0}, and all donations go "
+            "directly to the charity.\n\nCheck out the links above for the Twitch "
+            "stream, games schedule, and the donation portal!").format(
+                configurations.get(bot, __name__, 'charity')))
+
+    elif context.index == 2:  # Status
+        status_text = await _get_status(bot)
+        embed_template.add_field(name='Status', value=status_text, inline=False)
+
+    elif context.index == 3:  # Current game
+        embed_data = _get_current_game(bot, guild_id)[0]
+        embed_template.add_field(name=embed_data[0], value=embed_data[1], inline=False)
+
+    elif context.index == 4:  # Next game(s)
+        embed_data = _get_next_games(bot, context.arguments[0], guild_id)
+        for name, value in embed_data:
+            embed_template.add_field(name=name, value=value, inline=False)
+
+    elif context.index == 5:  # Search
+        embed_data = _search_games(bot, context.arguments[0], guild_id=guild_id)
+        embed_template.add_field(name=embed_data[0], value=embed_data[1], inline=False)
+
+    elif context.index == 6:  # Notify
+        game = _search_games(bot, context.arguments[0], return_game=True)
+        response.content = _toggle_notification(
+            bot, game, context, use_channel='channel' in context.options)
+        embed_template = None
+
+    response.embed = embed_template
+    return response
+
+
+async def _get_buffered_donation_stats(bot):
+    """Pulls buffered donation information if it is 1 minute old or less."""
+    last_pull = data.get(bot, __name__, 'last_pull', volatile=True, default=0)
+    buffer_time = configurations.get(bot, __name__, 'stats_buffer_time')
+    if time.time() - last_pull > buffer_time:  # Pull information
+        data.add(bot, __name__, 'last_pull', time.time(), volatile=True)
+        tracker_url = configurations.get(bot, __name__, 'tracker_url')
+        try:
+            donate_html = (await utilities.future(requests.get, tracker_url)).text
+            soup = BeautifulSoup(donate_html, 'html.parser')
+            donation_text = soup.find('small').text.splitlines()[1:]
+            total_raised, total_donations, _unused = donation_text[1].split()
+            total_donations = total_donations.strip('()')
+            max_average = donation_text[3]
+        except Exception as e:
+            raise CBException("Failed to retrieve donation data.", e=e)
+        donation_stats = [total_raised, total_donations, max_average]
+        data.add(bot, __name__, 'donation_stats', donation_stats, volatile=True)
+    else:
+        donation_stats = data.get(bot, __name__, 'donation_stats', volatile=True)
+    return donation_stats
 
 
 async def bot_on_ready_boot(bot):
-    """Notifies users that a game is about to be played."""
+    """Constantly updates the schedule data."""
     use_plugin = configurations.get(bot, __name__, key='enable')
-
-    if use_plugin:
-        stream_url = configurations.get(bot, __name__, 'stream_url')
-        update_counter = 0
-        update_time = 10  # 10 minute update interval default
-        time_leeway = datetime.timedelta(minutes=10)  # 10 minute default
-        notify_message = [
-            "Heads up,",
-            "Get ready,",
-            "Good news!",
-            "It's time!",
-            "Just so you know,",
-            "Just letting you know,",
-            "Attention,",
-            "Ping!",
-            "Hey,"
-        ]
-        await update_schedule(bot)
-
     while use_plugin:
-        current_time = datetime.datetime.utcnow()
-        if update_counter >= update_time:
-            await update_schedule(bot)
-            update_counter = 0
-        notify_games = data.get(bot, __name__, 'notify_games', default={})
-        schedule_data = data.get(bot, __name__, 'schedule_data', volatile=True)
-        game_list = data.get(
-            bot, __name__, 'game_list', volatile=True, default=[])
-
-        to_remove = []
-        for game_key, notification_list in notify_games.items():
-            game_index = game_list.index(game_key)  # May throw an exception
-            game = schedule_data[game_index]
-
-            if current_time > game['time'] - time_leeway:
-                to_remove.append(game_key)
-                game_length = datetime.timedelta(seconds=game['seconds'])
-                if game['time'] < current_time < game['time'] + game_length:
-                    response = (
-                        "Uh oh. Either the schedule was shifted drastically "
-                        "or I missed the timer - sorry! {} is live right "
-                        "now.").format(game['game'])
-                elif current_time >= game['time'] + game_length:
-                    response = (
-                        "Sorry! I missed the notification for {}. You can "
-                        "watch the VOD in a few days.").format(game['game'])
-                else:
-                    response = (
-                        "{0} {1} is about to be played soon. Tune in to "
-                        "watch the speedrun live!").format(
-                            random.choice(notify_message), game['game'])
-                response += '\n{}'.format(stream_url)
-
-                for location_id, use_channel in notification_list:
-                    if use_channel:
-                        location = bot.get_channel(location_id)
-                    else:
-                        location = data.get_member(bot, location_id)
-                    if location:
-                        asyncio.ensure_future(
-                            bot.send_message(location, response))
-                        await asyncio.sleep(0.05)  # Probably not necessary
-
-        for expired in to_remove:
-            del notify_games[expired]
-
-        await asyncio.sleep(60)
-        update_counter += 1
+        try:
+            await _update_schedule(bot)
+        except Exception as e:
+            print("Failed to update the schedule.", e)
+            await asyncio.sleep(20*60)
+        await asyncio.sleep(10*60)

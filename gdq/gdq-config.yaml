@@ -1,0 +1,15 @@
+# Set to false if it isn't GDQ season
+enable: true
+
+# (seconds) Number of seconds before the donation stats are marked for updating
+stats_buffer_time: 60
+
+charity: "Doctors Without Borders"
+schedule_url: "https://gamesdonequick.com/schedule"
+api_url: "https://api.twitch.tv/kraken/streams/gamesdonequick"
+tracker_url: "https://gamesdonequick.com/tracker/20"
+stream_url: "https://www.twitch.tv/gamesdonequick"
+donate_url: "https://gamesdonequick.com/tracker/donate/20"
+
+# Twitch API client ID
+client_id: ""
