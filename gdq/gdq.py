@@ -272,15 +272,17 @@ async def _get_status(bot, raised_only=False):
             "**Max / Average donation:** {4}").format(status, viewers, *donation_stats)
 
 
+async def _set_debug_weeks(bot, weeks):
+    """Change the week delta programmatically for testing purposes."""
+    data.add(bot, __name__, 'debug_weeks', int(weeks), volatile=True)
+    await _update_schedule(bot)
+    return "Schedule updated."
+
+
 async def _update_schedule(bot):
     """Reads the GDQ schedule and updates the information in the database."""
-    # TODO: Revert
-    '''
     schedule_url = configurations.get(bot, __name__, 'schedule_url')
     html_data = (await utilities.future(requests.get, schedule_url)).text
-    '''
-    with open('/home/jsh/Documents/gdq_schedule.html') as gdq_data:
-        html_data = gdq_data.read()
     soup = BeautifulSoup(html_data, 'html.parser')
     run_table = soup.find('table', {'id': 'runTable'})
     schedule_data = []
@@ -289,6 +291,7 @@ async def _update_schedule(bot):
     if run_table is None:
         raise CBException('Run table not found!')
 
+    debug_weeks = data.get(bot, __name__, 'debug_weeks', default=0, volatile=True)
     current_data = {}
     for entry in run_table.find_all('tr'):
         entry_class = entry.get('class', [''])[0]
@@ -332,7 +335,7 @@ async def _update_schedule(bot):
             else:
                 setup_seconds = 0
             current_data = {
-                'scheduled': start_time - datetime.timedelta(weeks=2),  # TODO: Remove debug
+                'scheduled': start_time - datetime.timedelta(weeks=debug_weeks),
                 'game': game,
                 'runners': runners,
                 'setup': setup_time,
@@ -358,7 +361,6 @@ async def _update_schedule(bot):
     for entry in entries:
         payload, key = entry[3:5]
         if key not in game_list:  # Not found error
-            print("Game not found. Key changed?", key)  # TODO: Conduct live test
             error_message = (
                 ":warning: Warning: The game {} has been removed, renamed, or "
                 "recategorized. You have been removed from the notification list "
