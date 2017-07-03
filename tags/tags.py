@@ -879,8 +879,10 @@ async def tag_retrieve(bot, context):
                     download_url = value
             sound_file = await data.add_to_cache(bot, download_url, name=content)
 
-        ffmpeg_options = '-protocol_whitelist "file,http,https,tcp,tls"'
-        audio_source = discord.FFmpegPCMAudio(sound_file, before_options=ffmpeg_options)
+        # TODO: Check ffmpeg options?
+        #ffmpeg_options = '-protocol_whitelist "file,http,https,tcp,tls"'
+        #audio_source = discord.FFmpegPCMAudio(sound_file, before_options=ffmpeg_options)
+        audio_source = discord.FFmpegPCMAudio(sound_file)
         audio_source = discord.PCMVolumeTransformer(audio_source, volume=tag.volume)
         voice_client.play(audio_source)
     else:
