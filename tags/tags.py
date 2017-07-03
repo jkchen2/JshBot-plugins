@@ -752,8 +752,8 @@ async def _import_tag_status(bot, context, response):
     new_tags = []
     required = (
         ('full_name', str), ('flags', int), ('content', (list, str)),
-        ('author', int), ('created', int), ('hits', int), ('last_used', int),
-        ('last_used_by', int), ('volume', float))
+        ('author', int), ('created', int), ('hits', int), ('last_used', (None, int)),
+        ('last_used_by', (None, int)), ('volume', float))
     bot.extra = response.extra
     for index, tag_pair in enumerate(response.extra.items()):
         _, tag = tag_pair
@@ -766,9 +766,12 @@ async def _import_tag_status(bot, context, response):
                     raise CBException("Missing field `{}`".format(test))
                 try:
                     if isinstance(type_check, tuple):
-                        assert isinstance(tag[test], type_check[0])
-                        for entry in tag[test]:
-                            assert isinstance(entry, type_check[1])
+                        if type_check[0] is list:
+                            assert isinstance(tag[test], type_check[0])
+                            for entry in tag[test]:
+                                assert isinstance(entry, type_check[1])
+                        else:  # Possibly None
+                            assert tag[test] is None or isinstance(tag[test], type_check[1])
                     else:
                         assert isinstance(tag[test], type_check)
                 except:
@@ -830,7 +833,6 @@ async def _import_tag_status(bot, context, response):
             logger.debug("Tag added to new_tags: %s", cleaned_tag_name)
 
         except Exception as e:
-            bot.extra = e
             try:
                 raise CBException("Failed to import tag `{}`".format(tag_name), e=e)
             except NameError:
