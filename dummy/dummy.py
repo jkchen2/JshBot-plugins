@@ -23,7 +23,7 @@
 
 import asyncio
 
-from jshbot import utilities, configurations, plugins
+from jshbot import utilities, configurations, plugins, logger
 from jshbot.exceptions import ConfiguredBotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
@@ -35,7 +35,7 @@ uses_configuration = True
 
 # Apply this decorator to every function that returns a list of new commands
 @plugins.command_spawner
-def get_commands():
+def get_commands(bot):
     """Returns a list of commands associated with this plugin."""
     new_commands = []
 
@@ -319,13 +319,13 @@ async def active_marquee(bot, context, response):
 #   called appropriately. Be sure to include the bot argument first!
 
 async def on_ready(bot):
-    print("on_ready was called from dummy.py!")
+    logger.info("on_ready was called from dummy.py!")
 
 
 async def on_message_edit(bot, before, after):
     if (before.author != bot.user and
             configurations.get(bot, __name__, key='show_edited_messages')):
-        print("Somebody edited their message from '{0}' to '{1}'.".format(
+        logger.info("Somebody edited their message from '{0}' to '{1}'.".format(
             before.content, after.content))
 
 

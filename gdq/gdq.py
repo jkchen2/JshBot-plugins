@@ -9,7 +9,7 @@ import time
 from collections import OrderedDict
 from bs4 import BeautifulSoup
 
-from jshbot import utilities, data, configurations, plugins
+from jshbot import utilities, data, configurations, plugins, logger
 from jshbot.exceptions import BotException, ConfiguredBotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
@@ -20,7 +20,7 @@ CBException = ConfiguredBotException('GDQ plugin')
 
 
 @plugins.command_spawner
-def get_commands():
+def get_commands(bot):
     new_commands = []
 
     new_commands.append(Command(
@@ -172,7 +172,7 @@ def _update_current_game(bot, safe=False, include_setup_status=False):
             else:
                 return index
         elif current_time < start_time:
-            print("The current time is less than the start time. Index:", index)
+            logger.debug("The current time is less than the start time. Index: %s", index)
             break
     else:  # GDQ over, or past schedule
         game, index = None, 999
@@ -531,6 +531,6 @@ async def bot_on_ready_boot(bot):
         try:
             await _update_schedule(bot)
         except Exception as e:
-            print("Failed to update the schedule.", e)
+            logger.warn("Failed to update the GDQ schedule. %s", e)
             await asyncio.sleep(20*60)
         await asyncio.sleep(10*60)

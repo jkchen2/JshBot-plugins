@@ -1,7 +1,7 @@
 import discord
 from youtube_dl import YoutubeDL
 
-from jshbot import utilities, configurations, plugins, data
+from jshbot import utilities, configurations, plugins, data, logger
 from jshbot.exceptions import ConfiguredBotException, BotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
@@ -12,7 +12,7 @@ uses_configuration = False
 
 
 @plugins.command_spawner
-def get_commands():
+def get_commands(bot):
     return [Command('play', subcommands=[SubCommand(Arg('url'))])]
 
 
@@ -28,7 +28,7 @@ async def get_response(bot, context):
         try:
             file_location = data.get_from_cache(bot, None, url=url)
             if not file_location:
-                print("Not found in cache. Downloading...")
+                logger.info("Not found in cache. Downloading...")
                 info = await utilities.future(downloader.extract_info, url, download=False)
                 download_url = info['formats'][0]['url']
                 file_location = await data.add_to_cache(bot, download_url, name=url)
