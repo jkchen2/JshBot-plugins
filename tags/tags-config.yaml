@@ -1,0 +1,11 @@
+# Tags are shared across servers
+global_tags: false
+
+# Issuing commands will be removed
+replace_commands: false
+
+max_tag_name_length: 30
+max_tags_per_server: 1000
+
+# (seconds)
+max_sound_tag_length: 30
