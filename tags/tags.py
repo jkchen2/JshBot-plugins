@@ -1013,7 +1013,11 @@ async def _get_checked_durations(bot, urls):
             if 'duration' in info:
                 duration = int(info['duration'])
             else:  # Manual download and check
-                chosen_format = info['formats'][0]
+                bot.extra = info
+                if info.get('direct', False):
+                    chosen_format = info
+                else:
+                    chosen_format = info['formats'][0]
                 extension = chosen_format['ext']
                 download_url = chosen_format['url']
                 file_location, filename = await utilities.download_url(
@@ -1142,7 +1146,7 @@ async def bot_on_ready_boot(bot):
     replace_commands = configurations.get(bot, __name__, 'replace_commands')
 
     permissions = {
-        'attach_files': "Allows the tag list to be uploaded as a text file.",
+        'attach_files': "Allows tag exports to be uploaded as a text file.",
         'connect': "Allows the bot to connect to voice channels.",
         'speak': "Allows the usage of sound tags."
     }
