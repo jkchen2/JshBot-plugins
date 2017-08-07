@@ -214,20 +214,21 @@ def get_commands(bot):
 @plugins.db_template_spawner
 def get_templates(bot):
     return {
-        'tags_template': ("key               text PRIMARY KEY,"  # Cleaned key
-                          "value             text ARRAY,"
-                          "length            integer ARRAY,"
-                          "volume            double precision,"
-                          "name              text,"  # Full name upon creation
-                          "flags             integer,"
-                          "author            bigint,"
-                          "hits              integer,"
-                          "created           bigint,"
-                          "last_used         bigint,"
-                          "last_used_by      bigint,"
-                          "complex           json,"  # Unfinished
-                          "extra             json,"
-                          "CHECK (hits >= 0)")
+        'tags_template': (
+            "key               text PRIMARY KEY,"  # Cleaned key
+            "value             text ARRAY,"
+            "length            integer ARRAY,"
+            "volume            double precision,"
+            "name              text,"  # Full name upon creation
+            "flags             integer,"
+            "author            bigint,"
+            "hits              integer,"
+            "created           bigint,"
+            "last_used         bigint,"
+            "last_used_by      bigint,"
+            "complex           json,"  # Unfinished
+            "extra             json,"
+            "CHECK (hits >= 0)")
     }
 
 @plugins.on_load
@@ -588,7 +589,7 @@ def _build_tag_list_response(context, buttons, guild_tags, tag_blob, filter_text
     response.search = False
     response.filter_text = filter_text
     if context.direct:
-        response.current_guild = next(iter(guild_tags)).name
+        response.current_guild = next(iter(guild_tags))
     else:
         response.current_guild = context.guild.name
     guild_tag_data = guild_tags[response.current_guild]
@@ -597,11 +598,11 @@ def _build_tag_list_response(context, buttons, guild_tags, tag_blob, filter_text
         title='{} tags for {}'.format(guild_tag_data['total'], response.current_guild),
         description='{}```md\n{}```'.format(response.filter_text, tag_page_listing[0]))
     if len(guild_tags) == 1:
-        guild_page_value = ''
+        guild_page_value = '\u200b'
     else:
-        guild_page_value = 'Server [ 1 / {} ]\n'.format(1, len(guild_tags))
-    page_value = '{}Page [ 1 / {} ]'.format(guild_page_value, len(tag_page_listing))
-    response.embed.add_field(name='\u200b', value=page_value, inline=False)
+        guild_page_value = 'Server [ 1 / {} ]'.format(len(guild_tags))
+    page_value = 'Page [ 1 / {} ]'.format(len(tag_page_listing))
+    response.embed.add_field(name=guild_page_value, value=page_value, inline=False)
     return response
 
 
@@ -1107,11 +1108,10 @@ async def _tag_list_browser(bot, context, response, result, timed_out):
         return
     else:
         selection = ['⏮', '⬅', '➡', '⏭'].index(result[0].emoji)
-    current_guild = response.current_guild
-    guild_tag_data = response.guild_tags[current_guild]
+    guild_tag_data = response.guild_tags[response.current_guild]
     tag_page_listing = guild_tag_data['listing']
     guild_name_list = list(response.guild_tags)
-    guild_name_index = guild_name_list.index(current_guild)
+    guild_name_index = guild_name_list.index(response.current_guild)
     if selection in (1, 2):  # Page selection
         response.page = response.page + (1 if selection == 2 else -1)
         if response.page >= len(tag_page_listing):
@@ -1125,6 +1125,10 @@ async def _tag_list_browser(bot, context, response, result, timed_out):
         elif guild_name_index < 0:
             guild_name_index = len(guild_name_list) - 1
         response.current_guild = guild_name_list[guild_name_index]
+        guild_tag_data = response.guild_tags[response.current_guild]
+        tag_page_listing = guild_tag_data['listing']
+        guild_name_list = list(response.guild_tags)
+        guild_name_index = guild_name_list.index(response.current_guild)
 
     # Edit embed
     response.embed.title = '{} tags for {}'.format(guild_tag_data['total'], response.current_guild)
