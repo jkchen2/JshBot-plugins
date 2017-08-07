@@ -1,0 +1,3 @@
+# Set to true if you use a production key
+production_key: false
+token: ""
