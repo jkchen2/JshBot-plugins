@@ -121,8 +121,7 @@ def get_commands(bot):
                 function=set_region)],
         shortcuts=[
             Shortcut('summoner', 'summoner {name}', Arg('name', argtype=ArgTypes.MERGED)),
-            Shortcut('match', 'match {name}', Arg('name', argtype=ArgTypes.MERGED)),
-            Shortcut('mastery', 'mastery {arguments}', Arg('arguments', argtype=ArgTypes.MERGED))],
+            Shortcut('match', 'match {name}', Arg('name', argtype=ArgTypes.MERGED))],
         description='Get League of Legends information from the API.',
         other='You can specify the region for a summoner by adding '
               '`:region` after the name. For example, try\n`{invoker}lol '
@@ -132,6 +131,7 @@ def get_commands(bot):
     return new_commands
 
 '''
+Shortcut('mastery', 'mastery {arguments}', Arg('arguments', argtype=ArgTypes.MERGED))],
 SubCommand(
     Opt('mastery'),
     Opt('champion', attached='champion name',
