@@ -16,9 +16,6 @@ from requests import HTTPError
 from psycopg2.extras import Json
 from collections import namedtuple
 
-# from riotwatchermod import RiotWatcher, RateLimit
-# from riotwatchermod import HTTPError, error_429, error_404, error_403
-#from riotwatchermod import RiotWatcher
 from riotwatcher import RiotWatcher
 
 from jshbot.utilities import future
@@ -47,11 +44,13 @@ def handle_lol_exception(e):
 
 
 class SummonerConverter():
+    def __init__(self, force_update=False):
+        self.force_update = force_update
     async def __call__(self, bot, message, value, *a):
         if not value:
             raise CBException("Summoner name must not be blank.")
         region = data.get(bot, __name__, 'region', guild_id=message.guild.id, default='na')
-        return await _get_summoner(bot, value, region)
+        return await _get_summoner(bot, value, region, force_update=self.force_update)
 
 
 class ChampionConverter():
@@ -106,8 +105,8 @@ def get_commands(bot):
                 function=format_match),
             SubCommand(
                 Opt('challenge'),
-                Arg('summoner 1', convert=SummonerConverter()),
-                Arg('summoner 2', convert=SummonerConverter()),
+                Arg('summoner 1', convert=SummonerConverter(force_update=True)),
+                Arg('summoner 2', convert=SummonerConverter(force_update=True)),
                 Arg('champion 1', convert=ChampionConverter()),
                 Arg('champion 2', convert=ChampionConverter()),
                 doc='Compares two summoners\' mastery points, mastery levels, and number '
@@ -251,18 +250,32 @@ async def _build_summoner_embed(bot, summoner):
             ranked_info_display = 'Unranked'
         embed.add_field(name=position_name, value=ranked_info_display)
 
+    # Add cleverly disguised padding field
+    embed.add_field(
+        name='{} total ranked game{}'.format(
+            summoner.total_games, '' if summoner.total_games == 1 else 's'),
+        value='\u200b' + '　'*35 + '\u200b', inline=False)
+
     if 'mastery' not in summoner.missing_data:
-        embed.add_field(name="Top champions", value=summoner.top_champions)
+        top_champions_text = ' | '.join([
+            '[{}](# "Level: {} | Points: {}")'.format(
+                CHAMPION_EMOJIS.get(it[0], UNKNOWN_EMOJI), *it[1:])
+            for it in summoner.top_champions
+        ])
+        embed.add_field(name="Top champions", value=top_champions_text)
 
     newest_match = await _get_newest_match(bot, summoner, safe=True)
     if newest_match:
         if newest_match['finished']:
             status = 'Last'
-            quickstatus = newest_match['quickstatus'][str(summoner.account_id)]
+            quickstatus = newest_match['quickstatus'][str(summoner.summoner_id)]
             team = newest_match['teams'][quickstatus[0]]
             player = team['players'][quickstatus[1]]
-            line = '{} | {}{}{} | KDA: {}'.format(
-                'Won' if team['winner'] else 'Lost',
+            win_text = 'Won' if team['winner'] else 'Lost'
+            time_delta = time.time() - newest_match['timestamp'] + newest_match['game_time']
+            line = '[{}](# "{}") | {} | {}{} | KDA: {}'.format(
+                '🇼' if team['winner'] else '🇱',
+                "{} {} ago".format(win_text, utilities.get_time_string(time_delta, text=True)),
                 CHAMPION_EMOJIS.get(player['champion'], UNKNOWN_EMOJI),
                 SPELL_EMOJIS.get(player['spells'][0], UNKNOWN_EMOJI),
                 SPELL_EMOJIS.get(player['spells'][1], UNKNOWN_EMOJI),
@@ -272,25 +285,21 @@ async def _build_summoner_embed(bot, summoner):
             status = 'Current'
             quickstatus = newest_match['quickstatus'][str(summoner.summoner_id)]
             player = newest_match['teams'][quickstatus[0]]['players'][quickstatus[1]]
-            line = '{} | {}{}{} | [Time: {}]({} "op.gg spectate batch file")'.format(
+            line = '{} | {} | {}{} | [Time: {}]({} "op.gg spectate batch file")'.format(
                 ':large_blue_circle:' if quickstatus[0] == 'blue' else ':red_circle:',
                 CHAMPION_EMOJIS.get(player['champion'], UNKNOWN_EMOJI),
                 SPELL_EMOJIS.get(player['spells'][0], UNKNOWN_EMOJI),
                 SPELL_EMOJIS.get(player['spells'][1], UNKNOWN_EMOJI),
-                newest_match['game_time'],
+                utilities.get_time_string(newest_match['game_time']),
                 newest_match['spectate']
             )
         game_mode = MODES.get(newest_match['game_mode'], 'Unknown')
         embed.add_field(name='{} match [{}]'.format(status, game_mode), value=line)
 
-    # Add cleverly disguised padding field
-    embed.add_field(
-        name='{} total ranked game{}'.format(
-            summoner.total_games, '' if summoner.total_games == 1 else 's'),
-        value='\u200b' + '　'*35 + '\u200b', inline=False)
-
-    embed.set_footer(text="{} | ID {} | AID {} | Updated".format(  # TODO: Remove AID
-        summoner.region.upper(), summoner.summoner_id, summoner.account_id))
+    embed.set_footer(
+        text="{} | ID {} | AID {} | Updated".format(
+            summoner.region.upper(), summoner.summoner_id, summoner.account_id),
+        icon_url=REGION_IMAGES.get(summoner.region, UNKNOWN_EMOJI_URL))
     return embed
 
 
@@ -327,11 +336,10 @@ async def _get_summoner(bot, name, region, force_update=False):
     result = data.db_select(
         bot, from_arg='lol_summoner_cache', where_arg='search_name=%s AND region=%s',
         input_args=[search_name, region]).fetchone()
-    # logger.debug("This is the cache result: %s", result)
+
+    # Check if the entry exists and needs to be refreshed, or has expired
     if not result or (time.time() - result.last_updated > 24*60*60) or force_update:
-        logger.debug("Summoner NOT found in cache (or expired).")
-        # Get summoner information and update
-        # call summoner-v3 (get summoner ID)
+        logger.debug("Summoner NOT found in cache (or expired or forced).")
         try:
             summoner_info = await future(WATCHER.summoner.by_name, PLATFORMS[region], name)
         except HTTPError as e:
@@ -403,19 +411,14 @@ async def _get_summoner(bot, name, region, force_update=False):
             json_data['total_games'] += league['wins'] + league['losses']
         if not json_data['rank']:  # Solo ranked data missing
             json_data['missing_data'].append('league')
-            logger.warn("No solo ranked data available.")  # TODO: Remove
 
         # Parse mastery data:
-        top_champions = []
-        for mastery in info[1][:3]:
-            top_champions.append(
-                CHAMPIONS.get(str(mastery['championId']), {'name': 'Unknown'})['name'])
+        top_champions = [
+            [it['championId'], it['championLevel'], it['championPoints']] for it in info[1][:3]]
         if not top_champions:
             json_data['missing_data'].append('mastery')
-            logger.warn("No mastery data available.")  # TODO: Remove
-        json_data.update({
-            'top_champions': ' | '.join(top_champions) if top_champions else 'None'
-        })
+        else:
+            json_data.update({ 'top_champions': top_champions })
         all_data += [Json(json_data), current_time]
 
         result = json_data
@@ -435,7 +438,7 @@ async def _get_summoner(bot, name, region, force_update=False):
                 bot, 'lol_summoner_cache',
                 set_arg='{} = {}'.format(names, values), where_arg='account_id=%s',
                 input_args=all_data + [account_id])
-        elif entry_count > 20:  # TODO: Change back to 10000
+        elif entry_count > 10000:
             logger.debug("Replacing oldest entry in cache with: %s", account_id)
             oldest_id = data.db_select(
                 bot, from_arg='lol_summoner_cache', additional='ORDER BY last_updated ASC',
@@ -463,8 +466,6 @@ async def format_match(bot, context):
     summoner = context.arguments[0]
     current_match_data = None
     if 'prev' in context.options:  # Check previous match
-        # match_data = await _get_previous_match(
-        #     bot, summoner, context.options['prev'], force_ranked=force_ranked)
         matchlist, match_type = await _get_matchlist(bot, summoner, force_ranked=force_ranked)
         try:
             chosen_match = matchlist[context.options['prev'] - 1]
@@ -472,7 +473,6 @@ async def format_match(bot, context):
             raise CBException("Match index must be between 1 and {}.".format(len(matchlist)))
 
         match_id = chosen_match['gameId']
-        # match_data = await _clean_match(bot, match_id, match_type, summoner)
     else:  # Check for current match
         match_id = None
         try:
@@ -489,11 +489,14 @@ async def format_match(bot, context):
 
     match_data = await _clean_match(
         bot, match_id, match_type, summoner, current_match_data=current_match_data)
+    embed = _build_match_embed(match_data)
+    '''
     match_table = _get_formatted_match_table(match_data, verbose=True)
     embed = discord.Embed(
         timestamp=datetime.datetime.utcfromtimestamp(match_data['timestamp']),
         title="Match", description='\u200b' + '　'*60 + '\n' + match_table)
     embed.set_footer(text="{} | ID {} | Started".format(summoner.region.upper(), match_data['id']))
+    '''
     logger.debug("Finished format match")
     return Response(embed=embed)
 
@@ -596,7 +599,7 @@ async def _clean_match(
             'map': current_match_data['mapId'],
             'game_mode': current_match_data['gameQueueConfigId'],
             'timestamp': int(current_match_data['gameStartTime']/1000),
-            'game_time': utilities.get_time_string(current_match_data['gameLength'] + 180),
+            'game_time': current_match_data['gameLength'] + 180,
             'finished': False,
             'region': region,
             'invoker_account_id': invoker.account_id,
@@ -607,20 +610,14 @@ async def _clean_match(
         }
 
         blue_team['winner'], red_team['winner'] = None, None
-        red_team['bans'], blue_team['bans'] = [], []
-        all_bans = []
+        red_team['bans'], blue_team['bans'], all_bans = [], [], []
         logger.debug("Banned champions: %s", current_match_data['bannedChampions'])
         for banned_champion in current_match_data['bannedChampions']:
             champion_id = banned_champion['championId']
-            if champion_id == -1 or champion_id in all_bans:
-                continue
-            all_bans.append(champion_id)
-            champion_name = CHAMPIONS.get(
-                str(banned_champion['championId']), {}).get('name', 'Unknown')
-            if banned_champion['teamId'] == 100:
-                blue_team['bans'].append(champion_name)
-            else:
-                red_team['bans'].append(champion_name)
+            if champion_id != -1 and champion_id not in all_bans:
+                all_bans.append(champion_id)
+                player_team = blue_team if banned_champion['teamId'] == 100 else red_team
+                player_team['bans'].append(banned_champion['championId'])
 
         participants = current_match_data['participants']
         summoner_futures = [_get_summoner(bot, it['summonerName'], region) for it in participants]
@@ -659,23 +656,19 @@ async def _clean_match(
             cached_match = result.data
             cached_match['invoker_account_id'] = invoker.account_id
             cached_match['invoker_name'] = invoker.summoner_name
-            if str(invoker.account_id) in cached_match['quickstatus']:
+            if str(invoker.summoner_id) in cached_match['quickstatus']:
                 logger.debug("Returning cached match...")
                 data.db_update(
                     bot, 'lol_match_cache', set_arg='last_accessed=%s',
                     where_arg='match_id=%s', input_args=[time.time(), match_id])
-                bot.extra = cached_match  # TODO: Remove
                 return cached_match
-            else:
+            else:  # Update quickstatus data
                 logger.debug("Found match, but missing quickstatus data.")
-                # Call raw match with invoker data
                 match_data = await _get_raw_match(bot, match_id, invoker)
-                # Loop through participants
                 for index, identity in enumerate(match_data['participantIdentities']):
                     if ('player' in identity and
                             identity['player']['accountId'] == invoker.account_id):
                         player_position = identity['participantId']
-                        # player = identity['player']
                         if match_data['participants'][index]['teamId'] == 100:
                             team_name = 'blue'
                         else:
@@ -691,7 +684,7 @@ async def _clean_match(
                                 })
                                 logger.debug("This is player the data: %s", player_data)
                                 cached_match['quickstatus'].update({
-                                    str(invoker.account_id): [team_name, index]
+                                    str(invoker.summoner_id): [team_name, index]
                                 })
                                 break
                         else:
@@ -699,10 +692,6 @@ async def _clean_match(
                         break
                 else:
                     raise CBException("Summoner not found in match...?")
-                # Once invoker is matched, get values, set to updated_player_data
-                # Loop through summoners in invoker team in cached_match
-                # Once invoker is matched, update data
-                bot.extra = cached_match
 
                 data.db_update(
                     bot, 'lol_match_cache', set_arg='(data, last_accessed) = (%s, %s)',
@@ -715,9 +704,8 @@ async def _clean_match(
             'id': match_data['gameId'],
             'map': match_data['mapId'],
             'game_mode': match_data['queueId'],
-            #'game_mode': MODES.get(match_data['queueId'], 'Unknown'),
             'timestamp': int(match_data['gameCreation']/1000),
-            'game_time': utilities.get_time_string(match_data['gameDuration']),
+            'game_time': match_data['gameDuration'],
             'finished': True,
             'region': region,
             'invoker_account_id': invoker.account_id,
@@ -729,14 +717,17 @@ async def _clean_match(
 
         blue_won = match_data['teams'][0]['win'] == "Win"  # dear god why
         blue_team['winner'], red_team['winner'] = blue_won, not blue_won
-        red_team['bans'], blue_team['bans'] = [], []
+        red_team['bans'], blue_team['bans'], all_bans = [], [], []
         for team in match_data['teams']:
+            player_team = blue_team if team['teamId'] == 100 else red_team
+            player_team['bdt'] = [
+                team.get(it, 0) for it in ('baronKills', 'dragonKills', 'towerKills')]
+            bot.extra = team
             for ban in team.get('bans', []):
-                champion_name = CHAMPIONS.get(str(ban['championId']), {}).get('name', 'Unknown')
-                if team['teamId'] == 100:
-                    blue_team['bans'].append(champion_name)
-                else:
-                    red_team['bans'].append(champion_name)
+                champion_id = ban['championId']
+                if champion_id != -1 and champion_id not in all_bans:
+                    player_team['bans'].append(champion_id)
+                    all_bans.append(champion_id)
 
         # Get player data list and ranks
         players = []
@@ -769,17 +760,32 @@ async def _clean_match(
             else:
                 player_ranks[rank_indices[index]] = result.shorthand_tier
 
+        # Get total kills in match
+        total_kills = 0
+        for player in match_data['participants']:
+            total_kills += player['stats']['kills']
+        total_kills = 1 if total_kills <= 0 else total_kills
+
         # Pull information from each entry of player_game_data
         for index, player in enumerate(match_data['participants']):
 
             # Get spells and KDA with match details
-            spell_ids = [str(player['spell1Id']), str(player['spell2Id'])]
-            # spells = [SPELLS.get(spell, {}).get('name', 'Unknown') for spell in spell_ids]
             stats = player['stats']
             kills, deaths, assists = (stats['kills'], stats['deaths'], stats['assists'])
             value = (kills + assists) / (1 if deaths == 0 else deaths)
             kda_values = [kills, deaths, assists]
-            kda = '{0}/{1}/{2} ({3:.2f})'.format(kills, deaths, assists, value)
+            participation = '{:.1f}%'.format(100 * (kills + assists) / total_kills)
+            kda = '{}/{}/{} ({:.2f} | {})'.format(kills, deaths, assists, value, participation)
+
+            # Get kill tier
+            kill_tier = 0
+            kill_tier_frequency = 0
+            kill_tiers = ['double', 'triple', 'quadra', 'penta', 'unreal']
+            for tier_index, tier in enumerate(kill_tiers):
+                tier_test = stats[tier + 'Kills']
+                if tier_test:
+                    kill_tier = tier_index + 1
+                    kill_tier_frequency = tier_test
 
             player_team = blue_players if player['teamId'] == 100 else red_players
             player_team.append({
@@ -787,18 +793,22 @@ async def _clean_match(
                 'summoner_id': players[index].get('summoner_id', ''),
                 'account_id': players[index].get('account_id', ''),
                 'position': players[index]['position'],
+                'damage': stats.get('totalDamageDealtToChampions', 0),
+                'gold': stats.get('goldEarned', 0),
+                'cs': stats.get('totalMinionsKilled', 0) + stats.get('neutralMinionsKilled', 0),
                 'spells': [player['spell1Id'], player['spell2Id']],
                 'champion': player['championId'],
                 'rank': player_ranks[index],
                 'kda': kda,
-                'kda_values': kda_values
+                'kda_values': kda_values,
+                'kill_tier': [kill_tier, kill_tier_frequency]
             })
 
             if players[index].get('summoner_id'):
                 team = blue_team if player['teamId'] == 100 else red_team
                 team_name = 'blue' if player['teamId'] == 100 else 'red'
                 cleaned_match['quickstatus'].update({
-                    str(players[index]['account_id']): [team_name, len(player_team) - 1]
+                    str(players[index]['summoner_id']): [team_name, len(player_team) - 1]
                 })
 
     red_team['players'] = red_players
@@ -829,7 +839,7 @@ def _cache_match(bot, cleaned_match):
         entry_count = data.db_select(
             bot, select_arg='COUNT(*)', from_arg='lol_match_cache').fetchone().count
 
-        if entry_count > 20:  # TODO: Change back to 10000
+        if entry_count > 10000:
             logger.debug("Replacing oldest match in cache with: %s", cleaned_match['id'])
             oldest_id = data.db_select(
                 bot, from_arg='lol_match_cache', additional='ORDER BY last_updated ASC',
@@ -896,7 +906,7 @@ def _cache_raw_match(bot, raw_data, summoner):
 
     entry_count = data.db_select(
         bot, select_arg='COUNT(*)', from_arg='lol_raw_match_cache').fetchone().count
-    if entry_count > 20:  # TODO: Change back to 1000
+    if entry_count > 1000:
         logger.debug("Replacing oldest raw match in cache")
         oldest_entry = data.db_select(
             bot, from_arg='lol_raw_match_cache', additional='ORDER BY last_accessed ASC',
@@ -913,7 +923,7 @@ async def format_matchlist(bot, context):
     summoner = context.arguments[0]
     matchlist, match_type = await _get_matchlist(
         bot, summoner, force_ranked='ranked' in context.options)
-    truncated_list = matchlist[:10]
+    truncated_list = matchlist[:20]
     clean_matchlist = [None] * len(truncated_list)
     match_futures = []
     match_indices = []
@@ -922,14 +932,17 @@ async def format_matchlist(bot, context):
         result = data.db_select(
             bot, from_arg='lol_match_cache', where_arg='match_id=%s AND region=%s',
             input_args=[match_blurb['gameId'], summoner.region]).fetchone()
-        if result and str(summoner.account_id) in result.data['quickstatus']:
-            quickstatus = result.data['quickstatus'][str(summoner.account_id)]
+        if result and str(summoner.summoner_id) in result.data['quickstatus']:
+            quickstatus = result.data['quickstatus'][str(summoner.summoner_id)]
             team = result.data['teams'][quickstatus[0]]
+            player = team['players'][quickstatus[1]]
             clean_matchlist[index] = {
-                'game_mode': MODES.get(result.data['game_mode'], 'Unknown'),
-                'champion': CHAMPIONS.get(str(match_blurb['champion']), {}).get('name', 'Unknown'),
-                'kda': team['players'][quickstatus[1]]['kda'],
-                'status': 'Won' if team['winner'] else 'Lost'
+                'game_mode': result.data['game_mode'],
+                'champion': match_blurb['champion'],
+                'kda': player['kda'],
+                'status': team['winner'],
+                'spells': player['spells'],
+                'end_time': int(match_blurb['timestamp']/1000 + result.data['game_time'])
             }
         else:
             match_futures.append(_get_raw_match(bot, match_blurb['gameId'], summoner))
@@ -939,54 +952,134 @@ async def format_matchlist(bot, context):
     clean_results = _clean_matchlist(bot, unknown_match_blurbs, results, summoner)
     for index, result in zip(match_indices, clean_results):
         clean_matchlist[index] = result
-    bot.extra = clean_matchlist
-    matchlist_table = _get_matchlist_table(bot, clean_matchlist)
-    embed = discord.Embed(
-        title="Match history", description='\u200b' + '　'*50 + '\n' + matchlist_table)
-    embed.set_footer(text="{} | ID {}".format(summoner.region.upper(), summoner.summoner_id))
+
+    entries = _get_matchlist_entries(bot, clean_matchlist)
+    embed, _ = _build_matchlist_embed(bot, summoner, entries, 0)
     logger.debug("Finished format match list")
-    return Response(embed=embed)
+
+    response = Response(
+        message_type=MessageTypes.INTERACTIVE,
+        extra_function=_matchlist_menu,
+        extra={'buttons': ['⬅', '➡']},
+        embed=embed,
+        summoner=summoner,
+        entries=entries,
+        page_index=0)
+    return response
+
+
+async def _matchlist_menu(bot, context, response, result, timed_out):
+    if timed_out or not result:
+        return
+    selection = ['⬅', '➡'].index(result[0].emoji)
+    page_index = response.page_index + (-1 if selection == 0 else 1)
+    embed, page_index = _build_matchlist_embed(
+        bot, response.summoner, response.entries, page_index)
+    response.page_index = page_index
+    await response.message.edit(embed=embed)
+    
+
+def _build_matchlist_embed(bot, summoner, entries, page_index):
+    """Builds the matchlist embed for the given entries and page"""
+    split_entries = [entries[it:it+5] for it in range(0, len(entries), 5)]
+    max_index = len(split_entries) - 1
+    page_index = max(min(page_index, max_index), 0)
+    columns = list(zip(*split_entries[page_index]))
+
+    embed = discord.Embed(
+        title="{}'s match history".format(summoner.summoner_name), description='\u200b')
+    embed.add_field(name='Match', value='\n'.join(columns[0]))
+    embed.add_field(name='Champion | Spells | KDA', value='\n'.join(columns[1]))
+    embed.add_field(name='Page [ {} / {} ]'.format(page_index + 1, max_index + 1), value='\u200b')
+    embed.set_footer(
+        text="{} | ID {} | AID {}".format(
+            summoner.region.upper(), summoner.summoner_id, summoner.account_id),
+        icon_url=REGION_IMAGES.get(summoner.region, UNKNOWN_EMOJI_URL))
+    return embed, page_index
 
 
 def _clean_matchlist(bot, matchlist, matchlist_data, invoker):
     """Formats the given list of raw matches for the matchlist table."""
     cleaned_matches = []
     for match_blurb, match_data in zip(matchlist, matchlist_data):
+
+        if isinstance(match_data, BotException):
+            logger.debug("Ratelimited!")
+            cleaned_matches.append({
+                'game_mode': -1,
+                'champion': -1,
+                'kda': '?',
+                'status': None,
+                'spells': [-1, -1],
+                'end_time': 0,
+            })
+            continue
+
+        total_kills = 0
+        for player in match_data['participants']:
+            total_kills += player['stats']['kills']
+        total_kills = 1 if total_kills <= 0 else total_kills
+
         for participant in match_data['participantIdentities']:
             if ('player' in participant and
                     participant['player']['accountId'] == invoker.account_id):
-                stats = match_data['participants'][participant['participantId']-1]['stats']
-                win = 'Won' if stats['win'] else 'Lost'
+                player = match_data['participants'][participant['participantId']-1]
+                stats = player['stats']
+                win = stats['win']
+                spells = [player['spell1Id'], player['spell2Id']]
                 kills, deaths, assists = (stats['kills'], stats['deaths'], stats['assists'])
                 value = (kills + assists) / (1 if deaths == 0 else deaths)
-                kda_values = [kills, deaths, assists]
-                kda = '{0}/{1}/{2} ({3:.2f})'.format(kills, deaths, assists, value)
+                participation = '{:.1f}%'.format(100 * (kills + assists) / total_kills)
+                kda = '{}/{}/{} ({:.2f} | {})'.format(kills, deaths, assists, value, participation)
                 break
         else:
-            kda, win = '?', '?'
+            kda, spells, win = '?', [-1, -1], True  # Benefit of the doubt
 
         cleaned_matches.append({
-            'game_mode': MODES.get(match_data['queueId'], 'Unknown'),
-            'champion': CHAMPIONS.get(str(match_blurb['champion']), {}).get('name', 'Unknown'),
+            'game_mode': match_data['queueId'],
+            'champion': match_blurb['champion'],
             'kda': kda,
-            'status': win
+            'status': win,
+            'spells': spells,
+            'end_time': int(match_blurb['timestamp']/1000 + match_data['gameDuration'])
         })
 
     return cleaned_matches
 
 
-def _get_matchlist_table(bot, clean_matchlist):
-    """Returns a nicely formatted matchlist table."""
-    guide_template = (
-        '#  | Game Type               | Champion      | KDA              | Status |\n'
-        '---|-------------------------|---------------|------------------|--------|\n')
-    formatted_matches = []
+def _get_matchlist_entries(bot, clean_matchlist):
+    """Returns a list of 2-column rows for the fields of a cleaned matchlist embed."""
+    # Number | Selection | Win | Type ||| Champion | Spells | KDA
+    rows = []
+    
     for index, match in enumerate(clean_matchlist):
-        formatted_matches.append((
-            '{0: <3}| {1[game_mode]: <24}| {1[champion]: <14}| '
-            '{1[kda]: <17}| {1[status]: <7}|').format(index + 1, match))
+        entry = []
 
-    return '```\n{0}{1}```'.format(guide_template, '\n'.join(formatted_matches))
+        if match['status'] is None:  # Ratelimited result
+            entry.append('`[{: <2}]` | {} | {}'.format(
+                index + 1, UNKNOWN_EMOJI, "**`[Ratelimited!]`**"))
+            entry.append('| {0} | {0}{0} | {1}'.format(UNKNOWN_EMOJI, match['kda']))
+
+        else:
+            win_text = 'Won' if match['status'] else 'Lost'
+            time_delta = utilities.get_time_string(time.time() - match['end_time'], text=True)
+
+            entry.append('`[{: <2}]` | [{}](# "{}") | {}'.format(
+                index + 1,
+                '🇼' if match['status'] else '🇱',
+                "{} {} ago".format(win_text, time_delta),
+                MODES.get(match['game_mode'], 'Unknown')
+            ))
+            entry.append('| {} | {}{} | {}'.format(
+                CHAMPION_EMOJIS.get(match['champion'], UNKNOWN_EMOJI),
+                SPELL_EMOJIS.get(match['spells'][0], UNKNOWN_EMOJI),
+                SPELL_EMOJIS.get(match['spells'][1], UNKNOWN_EMOJI),
+                match['kda']
+            ))
+
+        rows.append(entry)
+
+    return rows
 
 
 async def _get_matchlist(bot, summoner, force_ranked=False):
@@ -1015,7 +1108,67 @@ async def _get_matchlist(bot, summoner, force_ranked=False):
 
 
 async def challenge(bot, context):
-    pass
+    summoners = context.arguments[:2]
+    champions = context.arguments[2:]
+
+    # Calculate score
+    rank_points = []
+    mastery_futures = []
+    for summoner, champion in zip(summoners, champions):
+        if summoner.tier == 'Unranked':
+            rank_points.append(CHALLENGE_POINTS['Unranked'])
+        elif summoner.tier in ('Master', 'Challenger'):
+            rank_points.append(CHALLENGE_POINTS['Master/Challenger'] + summoner.lp/87)
+        else:
+            rank_points.append(CHALLENGE_POINTS[summoner.tier][summoner.rank])
+        mastery_futures.append(future(
+            WATCHER.champion_mastery.by_summoner_by_champion,
+            PLATFORMS[summoner.region], summoner.summoner_id, champion['id']))
+
+    total = 0
+    scores = []
+    masteries = []
+    results = await utilities.parallelize(mastery_futures, return_exceptions=True)
+    for result, points in zip(results, rank_points):
+        if isinstance(result, HTTPError):
+            if result.response.status_code == 404:
+                mastery_data = (1, 1)
+            else:
+                handle_lol_exception(result)
+        else:
+            mastery_data = (result['championLevel'], result['championPoints'])
+        score = points * mastery_data[0] * math.log1p(mastery_data[1])
+        total += score
+        scores.append(score)
+        masteries.append(mastery_data)
+
+    # Edit embed
+    embed = discord.Embed(title="Challenge")
+    embed.add_field(name='', value='')
+    embed.add_field(name='\u200b', value='\u200b\u3000\u3000\u3000:vs:')
+    embed.add_field(name='', value='')
+    for summoner, champion, mastery, score in zip(summoners, champions, masteries, scores):
+        rows = []
+        opgg_link = 'https://{}.op.gg/summoner/userName={}'.format(
+            summoner.region, urllib.parse.quote_plus(summoner.summoner_name))
+        rows.append('`[{: <2}]` | [{}]({})'.format(
+            summoner.shorthand_tier, summoner.summoner_name, opgg_link))
+        rows.append('[{0}](# "Level: {1} | Points: {2}") ( {1} | {2} )'.format(
+            CHAMPION_EMOJIS.get(champion['id'], UNKNOWN_EMOJI), *mastery))
+        rows.append('{0}Win chance: {1:.2f}%{0}'.format(
+            '**' if score == max(scores) else '', 100 * score / total))
+
+        edit_index = 0 if summoners.index(summoner) == 0 else 2
+        embed.set_field_at(edit_index, name='\u200b', value='\n'.join(rows))
+
+    # Calculate summary
+    random_value = random.random() * total
+    winner_name = (summoners[0] if random_value < scores[0] else summoners[1]).summoner_name
+    embed.add_field(
+        name='\u200b', value='The RNG gods rolled: {:.1f}\nThe winner is **{}**!'.format(
+            random_value, winner_name))
+
+    return Response(embed=embed)
 
 
 async def set_region(bot, context):
@@ -1030,241 +1183,142 @@ async def set_region(bot, context):
                 "That is not a defined region. Available regions:",
                 ', '.join(r.upper() for r in REGIONS.values()))
         data.add(bot, __name__, 'region', region, guild_id=context.guild.id)
-        return Response(content="Region set.{}".format(last_region_message))
+        return Response(content="Region set to {} {}.{}".format(
+            region.upper(), REGION_EMOJIS.get(region, UNKNOWN_EMOJI), last_region_message))
     else:
         data.remove(bot, __name__, 'region', guild_id=context.guild.id, safe=True)
         return Response(content="Region reset to NA.{}".format(last_region_message))
 
 
-def _get_kill_participation(team_players, player):
-    """Gets a string of the kill participation of the summoner."""
-    kills, deaths, assists = player['kda_values']
-    participant_kills = kills + assists
-    total_kills = 0
-    for player in team_players:
-        total_kills += player['kda_values'][0]
-    total_kills = 1 if total_kills <= 0 else total_kills
-    return '{0:.1f}%'.format(100*participant_kills/total_kills)
+def _build_match_embed(match):
+    """Builds an embed from the given match"""
+    opgg_template = 'https://{}.op.gg/summoner/userName={{}}'.format(match['region'])
+    finished = match['finished']
+    obfuscated = match['obfuscated']
 
+    # Setup team templates
+    if finished:
+        blue_won = match['teams']['blue']['winner']
+        blue_status, red_status = (' [WON]', ' [LOST]') if blue_won else (' [LOST]', ' [WON]')
+        colour = discord.Colour(0x55acee if blue_won else 0xdd2e44)
+        embed_padding = '\u3000'*50 + '\u200b'
+    else:
+        blue_status, red_status, embed_padding = '', '', ''
+        colour = discord.Colour(0x77b255)
 
-def _get_formatted_match_table(match, verbose=False):
-    """Returns a scoreboard view of the given match."""
-    response = ''
+    embed = discord.Embed(
+        colour=colour,
+        timestamp=datetime.datetime.utcfromtimestamp(match['timestamp']),
+        title='{}Match'.format('' if finished else 'Ongoing '),
+        description='{}: {}\nType: {}\n\u200b{}'.format(
+            'Duration' if finished else 'Current Time',
+            utilities.get_time_string(match['game_time']),
+            MODES.get(match['game_mode'], 'Unknown'),
+            embed_padding))
 
-    # Very detailed table
-    if verbose:
-        response = '```diff\n'  # Use + and - to highlight
+    if not finished:
+        embed.url = match['spectate']
 
-        # Add current game time and game type
-        response += "{0} Game Time: {1}\n".format(
-                'Finished' if match['finished'] else 'Current',
-                match['game_time'])
-        response += 'Game Type: {}\n\n'.format(MODES.get(match['game_mode'], 'Unknown'))
-        team_responses = []  # Built up for each team
-        use_full_width = False
-        table_template = (
-            '{{0:{}<16}} {{1: >4}} | {{2: <13}}| {{3: <22}}| '
-            '{{4: <9}}| {{5: <9}}|\n')
-        guide_template = (
-            '  {} Rank | Champion     | '
-            'KDA                   | Spell 1  | Spell 2  |\n'
-            ' -{}------|--------------|-'
-            '----------------------|----------|----------|\n')
+    embed.add_field(name='', value='', inline=False)
+    embed.add_field(name='Summoner', value='')
+    embed.add_field(name='Champion | Spells | KDA', value='')
+    if finished:
+        embed.add_field(name='Multi | Damage | CS | Gold', value='')
+    embed.add_field(name='', value='', inline=False)
+    embed.add_field(name='Summoner', value='')
+    embed.add_field(name='Champion | Spells | KDA', value='')
+    if finished:
+        embed.add_field(name='Multi | Damage | CS | Gold', value='')
 
-        obfuscated = match['obfuscated']
-        # Loop through each team
-        for team_key, team in match['teams'].items():
-            team_response = []  # Current team response
+    embed.set_footer(
+        text="{} | ID {} | Started".format(match['region'].upper(), match['id']),
+        icon_url=REGION_IMAGES.get(match['region'], UNKNOWN_EMOJI_URL))
 
-            # Team
-            winner, finished = team.get('winner', ''), match['finished']
-            team_bans = ' -- Bans [{}]'.format(
-                ', '.join(team['bans'])) if team['bans'] else ''
-            team_win = ' [{}]'.format(
-                'WON' if winner else 'LOST') if finished else ''
-            team_response.append('{0} Team{1}{2}\n'.format(
-                team_key.capitalize(), team_bans, team_win))
+    for team_name, team in match['teams'].items():
+        # Summoner ||| Champion | Spells | KDA ||| Multi | Damage | CS | Gold
+        columns = [[], [], []]
+        team_kda = [0, 0, 0]
+        for player in team['players']:
 
-            # Loop through each participant on the team
-            for player in team['players']:
+            for index in range(3):
+                team_kda[index] += player['kda_values'][index]
 
-                # Check for full width
-                try:
-                    player['summoner_name'].encode('ascii')
-                except UnicodeEncodeError:  # Non-ascii detected
-                    use_full_width = True
+            # Summoner column
+            is_target = player['summoner_name'] == match['invoker_name']
+            indicator = 'white' if is_target else 'black'
+            if obfuscated and not is_target:
+                player_name = '`[Hidden]`'
+                player_rank = player['rank'][0] + '?'
+            else:
+                opgg_link = opgg_template.format(urllib.parse.quote_plus(player['summoner_name']))
+                player_name = '[{}]({})'.format(player['summoner_name'], opgg_link)
+                player_rank = '{: <2}'.format(player['rank'])
+            columns[0].append(':{}_small_square:`[{}]` | {}'.format(
+                indicator, player_rank, player_name))
 
-                # Highlight summoner if this is the one we're looking for
-                is_target = player['summoner_name'] == match['invoker_name']
+            # Champion and KDA column
+            champion = CHAMPION_EMOJIS.get(player['champion'], UNKNOWN_EMOJI)
+            spells = [SPELL_EMOJIS.get(it, UNKNOWN_EMOJI) for it in player['spells']]
 
-                # Add champion name, kda, and spells
-                if obfuscated and not is_target:
-                    summoner_name = '[Hidden]'
-                    summoner_rank = player['rank'][0] + '?'
+            # If the match is finished, add the third column for Damage, CS, and Gold
+            if finished:
+                columns[1].append('| {} | {}{} | {}'.format(champion, *spells, player['kda']))
+                kill_tier, frequency = player['kill_tier']
+                if frequency:
+                    tier_name = ['double', 'triple', 'quadra', 'penta', 'unreal'][kill_tier - 1]
+                    tier_text = "{} {}-kill{}".format(
+                        frequency, tier_name, '' if frequency == 1 else 's')
+                    tier_emoji = NUMBER_EMOJIS[kill_tier + 1]
                 else:
-                    summoner_name = player['summoner_name']
-                    summoner_rank = player['rank']
-                champion = CHAMPIONS.get(str(player['champion']), {}).get('name', 'Unknown')
-                spells = [
-                    SPELLS.get(str(it), {}).get('name', 'Unknown') for it in player['spells']
-                ]
-                team_response.append([
-                    is_target, summoner_name,
-                    summoner_rank, champion,
-                    player['kda'], *spells
-                ])
+                    tier_text = "No multi-kills"
+                    tier_emoji = ':stop_button:'
+                multi_kill = '[{}](# "{}")'.format(tier_emoji, tier_text)
+                columns[2].append(
+                    '| {} | `{: <6}\u200b` | `{: <3}\u200b` | `{: <5}\u200b`'.format(
+                        multi_kill, player['damage'], player['cs'], player['gold']))
+            else:
+                columns[1].append('| {} | {}{}'.format(champion, *spells))
 
-            team_responses.append(team_response)
-
-        # Append to response
-        if use_full_width:
-            space, hyphen = ('　', '－')
-            guide_text = 'Ｓｕｍｍｏｎｅｒ'
+        # Build team information (bans, team KDA)
+        team_blurb = []
+        if team_name == 'blue':
+            field_index = 0
+            team_title = ':large_blue_circle: | Blue Team{}'.format(blue_status)
         else:
-            space, hyphen = (' ', '-')
-            guide_text = 'Summoner'
+            field_index = 4 if finished else 3
+            team_title = ':red_circle: | Red Team{}'.format(red_status)
+        if team['bans']:
+            team_blurb.append('Bans: [{}]'.format(
+                ''.join(CHAMPION_EMOJIS.get(it, UNKNOWN_EMOJI) for it in team['bans'])))
 
-        guide_template = guide_template.format(guide_text + space*8, hyphen*16)
-        table_template = table_template.format(space)
-
-        for team_response in team_responses:
-            response += team_response[0] + guide_template
-            for player_data in team_response[1:]:
-                response += '+ ' if player_data[0] else '  '  # highlight
-
-                if use_full_width:  # Convert to ideographic width
-                    new_name = ''
-                    for character in player_data[1]:
-                        if character.isalnum() and ord(character) < 128:
-                            new_name += chr(ord(character) + 65248)
-                        elif character == ' ':
-                            new_name += space
-                        else:
-                            new_name += character
-                    player_data[1] = new_name
-
-                response += table_template.format(*player_data[1:])
-            response += '\n'
-
-        response += '\n```\n'
-        if not match['finished']:
-            response += 'Spectate: <{}>'.format(match['spectate'])
-
-    # Simple 3-4 line game info
-    else:
-
-        # Get team and summoner
-        team = match['teams'][
-            match['invoker_summoner_team'].lower()]['players']
-        try:
-            player = [
-                player for player in team
-                if player['account_id'] == match['invoker_account_id']][0]
-        except:
-            return 'Failed to retrieve game information.'
-
-        # Get extra information
-        if match['finished']:
-            kill_participation = ' - Kill Participation {}'.format(
-                _get_kill_participation(team, player))
-            player_team = match['invoker_summoner_team'].lower()
-            won_status = match['teams'][player_team]['winner']
-            extra_information = (
-                'Status: {}').format('Won' if won_status else 'Lost')
+        # Add additional team details if the match is finished
+        if finished:
+            # Get BDT
+            team_bdt_emojis = [BDT_EMOJIS[team_name[0] + it] for it in ('b', 'd', 't')]
+            team_blurb.append('[{0[0]}{1[0]} | {0[1]}{1[1]} | {0[2]}{1[2]}]'.format(
+                team_bdt_emojis, team['bdt']))
+            team_blurb.append('Team KDA: [{0[0]}/{0[1]}/{0[2]}]'.format(team_kda))
+            embed.set_field_at(
+                field_index+3, name='Multi | Damage | CS | Gold', value='\n'.join(columns[2]))
+            column_2_name = 'Champion | Spells | KDA'
         else:
-            kill_participation = ''
-            extra_information = (
-                'Side: {0[invoker_summoner_team]}\n'
-                'Time: {0[game_time]}').format(match)
+            column_2_name = 'Champion | Spells'
 
-        response += (
-            "**Game Type:** {0[game_mode]}\n"
-            "{1[champion]} - {1[kda]} {1[mastery]}{2} - {3} - {4}\n"
-            "{5}").format(match, player, kill_participation,
-                          *player['spells'], extra_information)
+        # Apply changes
+        embed.set_field_at(
+            field_index, name=team_title, inline=False,
+            value='\u200b{}'.format(' | '.join(team_blurb)))
+        embed.set_field_at(field_index+1, name='Summoner', value='\n'.join(columns[0]))
+        embed.set_field_at(
+            field_index+2, name=column_2_name, value='\n'.join(columns[1]))
 
-    return response
-
-
-'''
-async def get_challenge_result(bot, static, arguments, region):
-    """Gets a result of the challenge minigame.
-
-    The minigame consists of pitting two summoners' champions' mastery values
-    against each other.
-    """
-
-    watcher = static[0]
-    summoners = [arguments[0], arguments[1]]
-    champions = [arguments[2], arguments[3]]
-    games = [0, 0]
-    names = ['', '']
-    ids = [0, 0]
-
-    for it in range(2):
-
-        # Get summoner data and champion ID
-        summoners[it], summoner_region = await _get_summoner(
-            static, summoners[it], region)
-        names[it] = summoners[it]['name']
-        try:  # In case the champion isn't valid
-            champions[it] = static[1][champions[it].replace(' ', '').lower()]
-            champions[it] = champions[it]['id']
-        except KeyError:
-            return "Could not find the champion {}.".format(champions[it])
-
-        # Get ranked stats for total games played on each champion
-        ids[it] = summoners[it]['id']
-        summoners[it] = await get_ranked_stats_wrapper(
-            watcher, ids[it], summoner_region)
-
-        if summoners[it]:
-            for champion in summoners[it]['champions']:
-                if champion['id'] == champions[it]:
-                    games[it] = champion['stats']['totalSessionsPlayed']
-        if not games[it] or games[it] == 1:
-            games[it] = math.e
-
-        # Get champion mastery data for each champion
-        data = await _get_mastery_data(
-            bot, static, ids[it], summoner_region, champion_id=champions[it])
-        if data:
-            champions[it] = (data['championPoints'], data['championLevel'])
-        else:  # No mastery data on this champion
-            champions[it] = (math.e, 1)
-
-    # Do the calculation
-    if champions[0][1] and champions[1][1] and games[0] and games[1]:
-
-        # Do calculation stuff
-        scores = [0, 0]
-        for it in range(2):
-            scores[it] = (champions[it][1] *
-                          math.log1p(games[it]) *
-                          math.log1p(champions[it][0]))
-        total = scores[0] + scores[1]
-        response = ("Chance of {0} winning: {1:.2f}%\n"
-                    "Chance of {2} winning: {3:.2f}%\n").format(
-                        names[0], 100 * scores[0] / total,
-                        names[1], 100 * scores[1] / total)
-
-        # Calculate winner
-        random_value = random.random() * total
-        response += 'The RNG gods rolled: {0:.1f}\n'.format(random_value)
-        response += 'The winner is **{}**!'.format(
-            names[0] if random_value < scores[0] else names[1])
-
-        return response
-
-    else:
-        return "Something bad happened. Please report!"
-'''
+    return embed
 
 
 async def _get_static_data(bot):
     """Get static data returned as a tuple."""
     try:
-        # assert False  # Debug
+        #assert False  # TODO: Remove debug
         champions = (await future(
             WATCHER.static_data.champions, 'na1', data_by_id='true'))['data']
         spells = (await future(
@@ -1466,7 +1520,6 @@ RANK_ICONS = {
     'Unranked':     'https://i.imgur.com/9ENx4rB.png'
 }
 
-# TODO: Finish
 RANK_COLORS = {
     'Challenger':   discord.Color(0x2aa3d8),
     'Master':       discord.Color(0x4ae4d5),
@@ -1483,6 +1536,8 @@ DIVISIONS = {"V": "5", "IV": "4", "III": "3", "II": "2", "I": "1"}
 WATCHER, CHAMPIONS, SPELLS = None, None, None  # Set on startup
 
 UNKNOWN_EMOJI = ":grey_question:"
+UNKNOWN_EMOJI_URL = "https://i.imgur.com/UF2cwhX.png"
+
 
 CHAMPION_EMOJIS = {
     266:    '<:Champion_Aatrox:341777426537512962>',
@@ -1636,4 +1691,87 @@ SPELL_EMOJIS = {
     3:      '<:Spell_Exhaust:341780677651464192>',
     12:     '<:Spell_Teleport:341780677697470464>',
     32:     '<:Spell_Mark:341780677890539521>'
+}
+
+BDT_EMOJIS = {
+    'bb': '<:Blue_Baron:344596340795244554>',
+    'bd': '<:Blue_Dragon:344596340237533215>',
+    'bt': '<:Blue_Turret:344596340099252225>',
+    'rb': '<:Red_Baron:344596340484866048>',
+    'rd': '<:Red_Dragon:344596340434534421>',
+    'rt': '<:Red_Turret:344596340409630721>'
+}
+
+REGION_IMAGES = {
+    'br':   'https://i.imgur.com/FJ6ahZ0.png',
+    'eune': 'https://i.imgur.com/5gVIRDD.png',
+    'euw':  'https://i.imgur.com/5gVIRDD.png',
+    'kr':   'https://i.imgur.com/3y1Ytbh.png',
+    'lan':  'https://i.imgur.com/C3NOAPU.png',
+    'las':  'https://i.imgur.com/5eMM4X6.png',
+    'na':   'https://i.imgur.com/YjkbwMB.png',
+    'oce':  'https://i.imgur.com/qh2a85S.png',
+    'ru':   'https://i.imgur.com/tgHNo8A.png',
+    'tr':   'https://i.imgur.com/YnTJHXT.png',
+    'jp':   'https://i.imgur.com/kNeRbMn.png'
+}
+
+REGION_EMOJIS = {
+    'br':   ':flag_br:',
+    'eune': ':flag_eu:',
+    'euw':  ':flag_eu:',
+    'kr':   ':flag_kr:',
+    'lan':  ':flag_mx:',
+    'las':  ':flag_co:',
+    'na':   ':flag_us:',
+    'oce':  ':flag_au:',
+    'ru':   ':flag_ru:',
+    'tr':   ':flag_tr:',
+    'jp':   ':flag_jp:'
+}
+
+NUMBER_EMOJIS = [
+    ':zero:', ':one:', ':two:', ':three:', ':four:', ':five:',
+    ':six:', ':seven:', ':eight:', ':nine:', ':keycap_ten:'
+]
+
+CHALLENGE_POINTS = {
+    'Unranked': 2.66,
+
+    'Bronze': {
+        'V':    1.00,
+        'IV':   1.33,
+        'III':  1.66,
+        'II':   2.00,
+        'I':    2.33
+    },
+    'Silver': {
+        'V':    2.66,
+        'IV':   3.00,
+        'III':  3.33,
+        'II':   3.66,
+        'I':    4.00
+    },
+    'Gold': {
+        'V':    4.33,
+        'IV':   4.66,
+        'III':  5.00,
+        'II':   5.33,
+        'I':    5.66
+    },
+    'Platinum': {
+        'V':    6.0,
+        'IV':   6.33,
+        'III':  6.66,
+        'II':   7.00,
+        'I':    7.33
+    },
+    'Diamond': {
+        'V':    7.5,
+        'IV':   8,
+        'III':  8.5,
+        'II':   9,
+        'I':    9.5
+    },
+    'Master/Challenger': 10.2
 }
