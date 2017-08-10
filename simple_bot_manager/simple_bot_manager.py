@@ -34,7 +34,7 @@ def get_commands(bot):
                 Opt('avatar'), Arg('url', argtype=ArgTypes.MERGED_OPTIONAL),
                 doc='Sets or clears the bot\'s avatar.')],
         description='Change simple bot stuff, like the avatar and status.',
-        elevated_level=3, category='bot utilities', function=get_response))
+        hidden=True, elevated_level=3, category='bot utilities', function=get_response))
 
     return new_commands
 
