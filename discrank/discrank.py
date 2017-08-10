@@ -273,10 +273,11 @@ async def _build_summoner_embed(bot, summoner):
             player = team['players'][quickstatus[1]]
             win_text = 'Won' if team['winner'] else 'Lost'
             time_delta = time.time() - newest_match['timestamp'] + newest_match['game_time']
-            line = '[{}](# "{}") | {} | {}{} | KDA: {}'.format(
+            line = '[{}](# "{}") | {} `{: <2}\u200b` | {}{} | KDA: {}'.format(
                 '🇼' if team['winner'] else '🇱',
                 "{} {} ago".format(win_text, utilities.get_time_string(time_delta, text=True)),
-                CHAMPION_EMOJIS.get(player['champion'], UNKNOWN_EMOJI),
+                CHAMPION_EMOJIS.get(player['champion'][0], UNKNOWN_EMOJI),
+                player['champion'][1],
                 SPELL_EMOJIS.get(player['spells'][0], UNKNOWN_EMOJI),
                 SPELL_EMOJIS.get(player['spells'][1], UNKNOWN_EMOJI),
                 player['kda']
@@ -287,7 +288,7 @@ async def _build_summoner_embed(bot, summoner):
             player = newest_match['teams'][quickstatus[0]]['players'][quickstatus[1]]
             line = '{} | {} | {}{} | [Time: {}]({} "op.gg spectate batch file")'.format(
                 ':large_blue_circle:' if quickstatus[0] == 'blue' else ':red_circle:',
-                CHAMPION_EMOJIS.get(player['champion'], UNKNOWN_EMOJI),
+                CHAMPION_EMOJIS.get(player['champion'][0], UNKNOWN_EMOJI),
                 SPELL_EMOJIS.get(player['spells'][0], UNKNOWN_EMOJI),
                 SPELL_EMOJIS.get(player['spells'][1], UNKNOWN_EMOJI),
                 utilities.get_time_string(newest_match['game_time']),
@@ -637,7 +638,7 @@ async def _clean_match(
                 'summoner_id': participant['summonerId'],
                 'account_id': None,
                 'spells': [participant['spell1Id'], participant['spell2Id']],
-                'champion': participant['championId'],
+                'champion': [participant['championId']],
                 'rank': player_ranks[index],
                 'kda': '',
                 'kda_values': [0, 0, 0]
@@ -797,7 +798,7 @@ async def _clean_match(
                 'gold': stats.get('goldEarned', 0),
                 'cs': stats.get('totalMinionsKilled', 0) + stats.get('neutralMinionsKilled', 0),
                 'spells': [player['spell1Id'], player['spell2Id']],
-                'champion': player['championId'],
+                'champion': [player['championId'], stats['champLevel']],
                 'rank': player_ranks[index],
                 'kda': kda,
                 'kda_values': kda_values,
@@ -938,7 +939,7 @@ async def format_matchlist(bot, context):
             player = team['players'][quickstatus[1]]
             clean_matchlist[index] = {
                 'game_mode': result.data['game_mode'],
-                'champion': match_blurb['champion'],
+                'champion': player['champion'],
                 'kda': player['kda'],
                 'status': team['winner'],
                 'spells': player['spells'],
@@ -1007,7 +1008,7 @@ def _clean_matchlist(bot, matchlist, matchlist_data, invoker):
             logger.debug("Ratelimited!")
             cleaned_matches.append({
                 'game_mode': -1,
-                'champion': -1,
+                'champion': [-1, 0],
                 'kda': '?',
                 'status': None,
                 'spells': [-1, -1],
@@ -1019,6 +1020,7 @@ def _clean_matchlist(bot, matchlist, matchlist_data, invoker):
         for player in match_data['participants']:
             total_kills += player['stats']['kills']
         total_kills = 1 if total_kills <= 0 else total_kills
+        champion_data = [match_blurb['champion']]
 
         for participant in match_data['participantIdentities']:
             if ('player' in participant and
@@ -1031,13 +1033,14 @@ def _clean_matchlist(bot, matchlist, matchlist_data, invoker):
                 value = (kills + assists) / (1 if deaths == 0 else deaths)
                 participation = '{:.1f}%'.format(100 * (kills + assists) / total_kills)
                 kda = '{}/{}/{} ({:.2f} | {})'.format(kills, deaths, assists, value, participation)
+                champion_data.append(stats['champLevel'])
                 break
         else:
             kda, spells, win = '?', [-1, -1], True  # Benefit of the doubt
 
         cleaned_matches.append({
             'game_mode': match_data['queueId'],
-            'champion': match_blurb['champion'],
+            'champion': champion_data,
             'kda': kda,
             'status': win,
             'spells': spells,
@@ -1070,8 +1073,9 @@ def _get_matchlist_entries(bot, clean_matchlist):
                 "{} {} ago".format(win_text, time_delta),
                 MODES.get(match['game_mode'], 'Unknown')
             ))
-            entry.append('| {} | {}{} | {}'.format(
-                CHAMPION_EMOJIS.get(match['champion'], UNKNOWN_EMOJI),
+            entry.append('| {} `{: <2}\u200b` | {}{} | {}'.format(
+                CHAMPION_EMOJIS.get(match['champion'][0], UNKNOWN_EMOJI),
+                match['champion'][1],
                 SPELL_EMOJIS.get(match['spells'][0], UNKNOWN_EMOJI),
                 SPELL_EMOJIS.get(match['spells'][1], UNKNOWN_EMOJI),
                 match['kda']
@@ -1257,12 +1261,13 @@ def _build_match_embed(match):
                 indicator, player_rank, player_name))
 
             # Champion and KDA column
-            champion = CHAMPION_EMOJIS.get(player['champion'], UNKNOWN_EMOJI)
+            champion = CHAMPION_EMOJIS.get(player['champion'][0], UNKNOWN_EMOJI)
             spells = [SPELL_EMOJIS.get(it, UNKNOWN_EMOJI) for it in player['spells']]
 
             # If the match is finished, add the third column for Damage, CS, and Gold
             if finished:
-                columns[1].append('| {} | {}{} | {}'.format(champion, *spells, player['kda']))
+                columns[1].append('| {} `{: <2}\u200b` | {}{} | {}'.format(
+                    champion, player['champion'][1], *spells, player['kda']))
                 kill_tier, frequency = player['kill_tier']
                 if frequency:
                     tier_name = ['double', 'triple', 'quadra', 'penta', 'unreal'][kill_tier - 1]
