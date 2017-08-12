@@ -679,7 +679,7 @@ async def _clean_match(
                         else:
                             team_name = 'red'
                         team = cached_match['teams'][team_name]
-                        for player_data in team['players']:
+                        for player_index, player_data in enumerate(team['players']):
                             if player_data['position'] == player_position:
                                 player_data.update({
                                     'summoner_name': invoker.summoner_name,
@@ -689,7 +689,7 @@ async def _clean_match(
                                 })
                                 logger.debug("This is player the data: %s", player_data)
                                 cached_match['quickstatus'].update({
-                                    str(invoker.summoner_id): [team_name, index]
+                                    str(invoker.summoner_id): [team_name, player_index]
                                 })
                                 break
                         else:
