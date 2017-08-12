@@ -121,7 +121,10 @@ def get_commands(bot):
                 function=set_region)],
         shortcuts=[
             Shortcut('summoner', 'summoner {name}', Arg('name', argtype=ArgTypes.MERGED)),
-            Shortcut('match', 'match {name}', Arg('name', argtype=ArgTypes.MERGED))],
+            Shortcut('match', 'match {name}', Arg('name', argtype=ArgTypes.MERGED)),
+            Shortcut(
+                'challenge', 'challenge {summoner1} {summoner2} {champion1} {champion2}',
+                Arg('summoner1'), Arg('summoner2'), Arg('champion1'), Arg('champion2'))],
         description='Get League of Legends information from the API.',
         other='You can specify the region for a summoner by adding '
               '`:region` after the name. For example, try\n`{invoker}lol '
@@ -471,7 +474,8 @@ async def format_match(bot, context):
         try:
             chosen_match = matchlist[context.options['prev'] - 1]
         except IndexError:
-            raise CBException("Match index must be between 1 and {}.".format(len(matchlist)))
+            raise CBException(
+                "Match index must be between 1 and {} inclusive.".format(len(matchlist)))
 
         match_id = chosen_match['gameId']
     else:  # Check for current match
