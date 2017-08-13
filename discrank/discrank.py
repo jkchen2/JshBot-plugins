@@ -602,7 +602,7 @@ async def _clean_match(
             'spectate': spectate_url.format(region, current_match_data['gameId']),
             'id': current_match_data['gameId'],
             'map': current_match_data['mapId'],
-            'game_mode': current_match_data['gameQueueConfigId'],
+            'game_mode': current_match_data.get('gameQueueConfigId', 0),
             'timestamp': int(current_match_data['gameStartTime']/1000),
             'game_time': current_match_data['gameLength'] + 180,
             'finished': False,
