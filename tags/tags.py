@@ -78,8 +78,7 @@ class TagConverter():
 
             if not self.skip_sound and 'sound' in flags:
                 if message.author.voice is None:  # Check channel mute filters
-                    raise CBException(
-                        "This is a sound tag - you are not in a voice channel.", value)
+                    raise CBException("This is a sound tag - you are not in a voice channel.")
                 voice_channel = message.author.voice.channel
                 voice_filter = data.get(
                     bot, __name__, 'filter', guild_id=message.guild.id,
@@ -863,8 +862,6 @@ async def tag_retrieve(bot, context):
 
     if 'sound' in flags:
         voice_channel = context.author.voice.channel
-        voice_client = await utilities.join_and_ready(
-            bot, voice_channel, is_mod=context.elevation >= 1)
 
         sound_file = data.get_from_cache(bot, None, url=content)
         if not sound_file:  # Can't reuse URLs unfortunately
@@ -879,7 +876,7 @@ async def tag_retrieve(bot, context):
                 except Exception as e:
                     logger.warn("youtube_dl failed to download file.")
                     logger.warn("Exception information: {}".format(e))
-                    download_url = value
+                    raise CBException("Failed to download the file.", e=e)
             sound_file = await data.add_to_cache(bot, download_url, name=content)
 
         # TODO: Check ffmpeg options?
@@ -887,6 +884,8 @@ async def tag_retrieve(bot, context):
         #audio_source = discord.FFmpegPCMAudio(sound_file, before_options=ffmpeg_options)
         audio_source = discord.FFmpegPCMAudio(sound_file)
         audio_source = discord.PCMVolumeTransformer(audio_source, volume=tag.volume)
+        voice_client = await utilities.join_and_ready(
+            bot, voice_channel, is_mod=context.elevation >= 1)
         voice_client.play(audio_source)
     else:
         return Response(content=content)
