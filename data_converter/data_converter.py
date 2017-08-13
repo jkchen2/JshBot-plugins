@@ -10,7 +10,7 @@ CBException = ConfiguredBotException('0.3 to 0.4 plugin')
 
 @plugins.command_spawner
 def get_commands(bot):
-    return [Command('convertdata')]
+    return [Command('convertdata', hidden=True, elevated_level=3)]
 
 async def get_response(bot, context):
     for guild in bot.guilds:
