@@ -1217,7 +1217,7 @@ def _build_match_embed(match):
     embed = discord.Embed(
         colour=colour,
         timestamp=datetime.datetime.utcfromtimestamp(match['timestamp']),
-        title='{}Match'.format('' if finished else 'Ongoing '),
+        title='Match' if finished else 'Ongoing Match (spectate)',
         description='{}: {}\nType: {}\n\u200b{}'.format(
             'Duration' if finished else 'Current Time',
             utilities.get_time_string(match['game_time']),
