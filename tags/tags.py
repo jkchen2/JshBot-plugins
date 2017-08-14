@@ -147,7 +147,7 @@ def get_commands(bot):
                 Opt('add', attached='entry', optional=True, group='extra'),
                 Opt('remove', attached='entry', optional=True, group='extra'),
                 Opt('volume', attached='percent', optional=True, group='extra',
-                    convert=utilities.PercentageConverter(),
+                    quotes_recommended=False, convert=utilities.PercentageConverter(),
                     check=lambda b, m, v, *a: 0.1 <= v <= 2.0,
                     check_error='Must be between 10% and 200% inclusive.'),
                 Opt('private', optional=True, group='extra'),
