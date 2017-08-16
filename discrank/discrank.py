@@ -114,11 +114,11 @@ def get_commands(bot):
                 function=challenge),
             SubCommand(
                 Opt('setregion'),
-                Arg('region', quotes_recommended=False, argtype=ArgTypes.MERGED_OPTIONAL,
+                Arg('region', argtype=ArgTypes.MERGED_OPTIONAL,
                     doc='Valid regions are `NA` (default), `BR`, `EUNE`, `EUW`, `JP`, '
                         '`KR`, `LAN`, `LAS`, `OCE`, `RU`, and `TR`.'),
                 doc='Sets the default region for the server.',
-                function=set_region)],
+                allow_direct=False, function=set_region)],
         shortcuts=[
             Shortcut('summoner', 'summoner {name}', Arg('name', argtype=ArgTypes.MERGED)),
             Shortcut('match', 'match {name}', Arg('name', argtype=ArgTypes.MERGED)),
@@ -1195,7 +1195,8 @@ async def set_region(bot, context):
             region.upper(), REGION_EMOJIS.get(region, UNKNOWN_EMOJI), last_region_message))
     else:
         data.remove(bot, __name__, 'region', guild_id=context.guild.id, safe=True)
-        return Response(content="Region reset to NA.{}".format(last_region_message))
+        return Response(content="Region reset to NA {}.{}".format(
+            REGION_EMOJIS.get('na', UNKNOWN_EMOJI), last_region_message))
 
 
 def _build_match_embed(match):
