@@ -133,21 +133,6 @@ def get_commands(bot):
 
     return new_commands
 
-'''
-Shortcut('mastery', 'mastery {arguments}', Arg('arguments', argtype=ArgTypes.MERGED))],
-SubCommand(
-    Opt('mastery'),
-    Opt('champion', attached='champion name',
-        optional=True, convert=ChampionConverter(),
-        doc='Get information for this champion only.'),
-    Arg('summoner name', argtype=ArgTypes.MERGED, convert=SummonerConverter()),
-    doc='Gets a list of the top 10 champions of the summer based off of mastery.'),
-SubCommand(
-    Opt('chests'),
-    Arg('summoner name', argtype=ArgTypes.MERGED, convert=SummonerConverter()),
-    doc='Shows the unobtained chests for the given summoner.'),
-'''
-
 
 @plugins.db_template_spawner
 def get_templates(bot):
@@ -178,7 +163,7 @@ def get_templates(bot):
 
 @plugins.on_load
 def create_lol_cache(bot):
-    if not data.db_exists(bot, 'lol_region', check_type=True):  # Create time index
+    if not data.db_exists(bot, 'lol_region', check_type=True):
         data.db_execute(
             bot, 'CREATE TYPE lol_region AS ENUM (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
             input_args=['br', 'eune', 'euw', 'kr', 'lan', 'las', 'na', 'oce', 'ru', 'tr', 'jp'])
@@ -495,13 +480,6 @@ async def format_match(bot, context):
     match_data = await _clean_match(
         bot, match_id, match_type, summoner, current_match_data=current_match_data)
     embed = _build_match_embed(match_data)
-    '''
-    match_table = _get_formatted_match_table(match_data, verbose=True)
-    embed = discord.Embed(
-        timestamp=datetime.datetime.utcfromtimestamp(match_data['timestamp']),
-        title="Match", description='\u200b' + '　'*60 + '\n' + match_table)
-    embed.set_footer(text="{} | ID {} | Started".format(summoner.region.upper(), match_data['id']))
-    '''
     logger.debug("Finished format match")
     return Response(embed=embed)
 
@@ -727,7 +705,6 @@ async def _clean_match(
             player_team = blue_team if team['teamId'] == 100 else red_team
             player_team['bdt'] = [
                 team.get(it, 0) for it in ('baronKills', 'dragonKills', 'towerKills')]
-            bot.extra = team
             for ban in team.get('bans', []):
                 champion_id = ban['championId']
                 if champion_id != -1 and champion_id not in all_bans:
@@ -739,7 +716,6 @@ async def _clean_match(
         player_ranks = []
         rank_indices = []
         rank_futures = []
-        bot.extra = match_data['participantIdentities']
         for index, identity in enumerate(match_data['participantIdentities']):
             summoner_tier = match_data['participants'][index].get('highestAchievedSeasonTier', 'U')
             player_ranks.append(summoner_tier[0])
@@ -885,10 +861,11 @@ async def _get_raw_match(bot, match_id, summoner):
         return match_data
 
     except Exception as e:
-        if e.response.status_code == 404:
-            raise CBException("Match does not exist.")
-        elif isinstance(e, HTTPError):
-            handle_lol_exception(e)
+        if isinstance(e, HTTPError):
+            if e.response.status_code == 404:
+                raise CBException("Match does not exist.")
+            else:
+                handle_lol_exception(e)
         else:
             raise CBException("Failed to get match information.", e=e)
 
@@ -962,7 +939,7 @@ async def format_matchlist(bot, context):
     embed, _ = _build_matchlist_embed(bot, summoner, entries, 0)
     logger.debug("Finished format match list")
 
-    response = Response(
+    return Response(
         message_type=MessageTypes.INTERACTIVE,
         extra_function=_matchlist_menu,
         extra={'buttons': ['⬅', '➡']},
@@ -970,7 +947,6 @@ async def format_matchlist(bot, context):
         summoner=summoner,
         entries=entries,
         page_index=0)
-    return response
 
 
 async def _matchlist_menu(bot, context, response, result, timed_out):
@@ -995,7 +971,9 @@ def _build_matchlist_embed(bot, summoner, entries, page_index):
         title="{}'s match history".format(summoner.summoner_name), description='\u200b')
     embed.add_field(name='Match', value='\n'.join(columns[0]))
     embed.add_field(name='Champion | Spells | KDA', value='\n'.join(columns[1]))
-    embed.add_field(name='Page [ {} / {} ]'.format(page_index + 1, max_index + 1), value='\u200b')
+    embed.add_field(
+        name='Page [ {} / {} ]'.format(page_index + 1, max_index + 1),
+        value='\u200b', inline=False)
     embed.set_footer(
         text="{} | ID {} | AID {}".format(
             summoner.region.upper(), summoner.summoner_id, summoner.account_id),
@@ -1012,7 +990,7 @@ def _clean_matchlist(bot, matchlist, matchlist_data, invoker):
             logger.debug("Ratelimited!")
             cleaned_matches.append({
                 'game_mode': -1,
-                'champion': [-1, 0],
+                'champion': [match_blurb['champion'], 0],
                 'kda': '?',
                 'status': None,
                 'spells': [-1, -1],
@@ -1024,11 +1002,11 @@ def _clean_matchlist(bot, matchlist, matchlist_data, invoker):
         for player in match_data['participants']:
             total_kills += player['stats']['kills']
         total_kills = 1 if total_kills <= 0 else total_kills
-        champion_data = [match_blurb['champion']]
+        champion_data = [match_blurb['champion'], 0]
 
         for participant in match_data['participantIdentities']:
             if ('player' in participant and
-                    participant['player']['accountId'] == invoker.account_id):
+                    participant['player']['currentAccountId'] == invoker.account_id):
                 player = match_data['participants'][participant['participantId']-1]
                 stats = player['stats']
                 win = stats['win']
@@ -1037,7 +1015,7 @@ def _clean_matchlist(bot, matchlist, matchlist_data, invoker):
                 value = (kills + assists) / (1 if deaths == 0 else deaths)
                 participation = '{:.1f}%'.format(100 * (kills + assists) / total_kills)
                 kda = '{}/{}/{} ({:.2f} | {})'.format(kills, deaths, assists, value, participation)
-                champion_data.append(stats['champLevel'])
+                champion_data[1] = stats['champLevel']
                 break
         else:
             kda, spells, win = '?', [-1, -1], True  # Benefit of the doubt
@@ -1065,7 +1043,7 @@ def _get_matchlist_entries(bot, clean_matchlist):
         if match['status'] is None:  # Ratelimited result
             entry.append('`[{: <2}]` | {} | {}'.format(
                 index + 1, UNKNOWN_EMOJI, "**`[Ratelimited!]`**"))
-            entry.append('| {0} | {0}{0} | {1}'.format(UNKNOWN_EMOJI, match['kda']))
+            entry.append('| {0} `? \u200b` | {0}{0} | {1}'.format(UNKNOWN_EMOJI, match['kda']))
 
         else:
             win_text = 'Won' if match['status'] else 'Lost'
@@ -1106,10 +1084,11 @@ async def _get_matchlist(bot, summoner, force_ranked=False):
         match_list = (await match_list_future)['matches']
         assert len(match_list)
     except Exception as e:
-        if e.response.status_code == 404 or isinstance(e, AssertionError):
-            raise CBException("No matches available.")
-        elif isinstance(e, HTTPError):
-            handle_lol_exception(e)
+        if isinstance(e, HTTPError):
+            if e.response.status_code == 404:
+                raise CBException("No matches available.")
+            else:
+                handle_lol_exception(e)
         else:
             raise e
     return match_list, match_type
