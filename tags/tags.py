@@ -474,7 +474,7 @@ async def tag_edit(bot, context):
             if total_entries >= 100:
                 raise CBException("Random tags can have no more than 100 entries.")
             if 'sound' in flags:  # Check audio length
-                length = await _get_checked_durations(bot, [to_add])[0]
+                length = (await _get_checked_durations(bot, [to_add]))[0]
             else:
                 length = len(to_add)
             new_tag[1].append(to_add)
@@ -1061,29 +1061,52 @@ def _get_guild_tags(bot, guilds, where_arg='', input_args='', flag_strip=[]):
                 tag_listing[tag.key[0]] = []
             tag_listing[tag.key[0]].append('{}'.format(_format_tag(tag, stripped=flag_strip)))
 
-        # Separate into pages less than 950 characters long
+        # Split formatted tags into chunks
+        CHUNK_SIZE = 1500  # Default: 1500
+        split_tag_listing = OrderedDict()
+        for letter, formatted_tags in tag_listing.items():
+            if letter not in split_tag_listing:
+                split_tag_listing[letter] = []
+            split_category = []
+            split_length = 0
+            for formatted_tag in formatted_tags:
+                split_category.append(formatted_tag)
+                split_length += len(formatted_tag) + 2
+                if split_length > CHUNK_SIZE:
+                    split_tag_listing[letter].append(', '.join(split_category))
+                    split_category = []
+                    split_length = 0
+            if split_category:
+                split_tag_listing[letter].append(', '.join(split_category))
+
+        # Combine with category labels
         cumulative_listing = []
         cumulative_length = 0
-        for letter, formatted_tags in tag_listing.items():
-            category = '# {} #\n{}'.format(letter.upper(), ', '.join(formatted_tags))
-            if len(category) + cumulative_length > 1500:
-                guild_tags[guild.name]['listing'].append('\n\n'.join(cumulative_listing))
-                cumulative_listing = []
-                cumulative_length = 0
-            cumulative_listing.append(category)
-            cumulative_length += len(category)
+        for letter, chunk_list in split_tag_listing.items():
+            for chunk in chunk_list:
+                category = '# {} #\n{}'.format(letter.upper(), chunk)
+
+                if len(category) + cumulative_length > CHUNK_SIZE:
+                    guild_tags[guild.name]['listing'].append('\n\n'.join(cumulative_listing))
+                    cumulative_listing = []
+                    cumulative_length = 0
+
+                cumulative_listing.append(category)
+                cumulative_length += len(category)
+
         if cumulative_listing:
             guild_tags[guild.name]['listing'].append('\n\n'.join(cumulative_listing))
 
+    # Organise into guilds
     tag_blob_list = []
     for guild_name, guild_tag_data in guild_tags.items():
         if guild_tag_data:
             guild_tag_listing = guild_tag_data['listing']
         else:
             guild_tag_listing = ['[No tags found]']
-
         tag_blob_list.append(
             '### Tags for {} ###\n\n{}'.format(guild_name, '\n\n'.join(guild_tag_listing)))
+
     tag_blob = '\n\n\n'.join(tag_blob_list)
     return guild_tags, tag_blob
 
