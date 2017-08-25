@@ -719,7 +719,7 @@ async def _clean_match(
         for index, identity in enumerate(match_data['participantIdentities']):
             summoner_tier = match_data['participants'][index].get('highestAchievedSeasonTier', 'U')
             player_ranks.append(summoner_tier[0])
-            if 'player' in identity:
+            if 'player' in identity and 'summonerId' in identity['player']:
                 summoner_name = identity['player']['summonerName']
                 logger.debug("Found player in match: %s", summoner_name)
                 rank_indices.append(index)
@@ -1665,7 +1665,8 @@ CHAMPION_EMOJIS = {
     498:    '<:Champion_Xayah:341777779894779904>',
     5:      '<:Champion_XinZhao:341777779924402179>',
     83:     '<:Champion_Yorick:341777780343832577>',
-    141:    '<:Champion_Kayne:343597241367265281>'
+    141:    '<:Champion_Kayne:343597241367265281>',
+    516:    '<:Champion_Ornn:349955854000455680>'
 }
 
 SPELL_EMOJIS = {
