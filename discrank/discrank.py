@@ -254,7 +254,10 @@ async def _build_summoner_embed(bot, summoner):
 
     newest_match = await _get_newest_match(bot, summoner, safe=True)
     if newest_match:
-        if newest_match['finished']:
+        if str(summoner.summoner_id) not in newest_match['quickstatus']:
+            status = 'Last' if newest_match['finished'] else 'Current'
+            line = '[{}] Match information unavailable'.format(UNKNOWN_EMOJI)
+        elif newest_match['finished']:
             status = 'Last'
             quickstatus = newest_match['quickstatus'][str(summoner.summoner_id)]
             team = newest_match['teams'][quickstatus[0]]
@@ -674,7 +677,8 @@ async def _clean_match(
                             raise CBException("Player not found in team...?")
                         break
                 else:
-                    raise CBException("Summoner not found in match...?")
+                    logger.warn("Summoner not found in match...?")
+                    #raise CBException("Summoner not found in match...?")
 
                 data.db_update(
                     bot, 'lol_match_cache', set_arg='(data, last_accessed) = (%s, %s)',
@@ -1343,12 +1347,24 @@ async def _get_static_data(bot):
 
 
 async def bot_on_ready_boot(bot):
+    # Load champion/spell emojis
+    global CHAMPION_EMOJIS, SPELL_EMOJIS, BDT_EMOJIS, WATCHER, CHAMPIONS, SPELLS
+    emoji_file_location = utilities.get_plugin_file(bot, 'lol_emojis.json', safe=False)
+    with open(emoji_file_location, 'r') as emoji_file:
+        emoji_data = json.load(emoji_file)
+    for key, value in emoji_data['champions']['id'].items():
+        CHAMPION_EMOJIS[int(key)] = value
+    for key, value in emoji_data['spells']['id'].items():
+        SPELL_EMOJIS[int(key)] = value
+    for color, symbols in emoji_data['bdt'].items():
+        for symbol, value in symbols.items():
+            BDT_EMOJIS[color[0] + symbol[0]] = value
+
     # Obtain all static data required
     watcher = RiotWatcher(configurations.get(bot, __name__, key='token'))
     configurations.redact(bot, __name__, 'token')
 
     # Get static data
-    global WATCHER, CHAMPIONS, SPELLS
     WATCHER = watcher
     CHAMPIONS, SPELLS = await _get_static_data(bot)
 
@@ -1527,170 +1543,7 @@ WATCHER, CHAMPIONS, SPELLS = None, None, None  # Set on startup
 UNKNOWN_EMOJI = ":grey_question:"
 UNKNOWN_EMOJI_URL = "https://i.imgur.com/UF2cwhX.png"
 
-
-CHAMPION_EMOJIS = {
-    266:    '<:Champion_Aatrox:341777426537512962>',
-    12:     '<:Champion_Alistar:341777427196018691>',
-    40:     '<:Champion_Janna:341777427233505292>',
-    51:     '<:Champion_Caitlyn:341777427233505302>',
-    63:     '<:Champion_Brand:341777427258802187>',
-    126:    '<:Champion_Jayce:341777427292225537>',
-    86:     '<:Champion_Garen:341777427292225547>',
-    1:      '<:Champion_Annie:341777427384631317>',
-    136:    '<:Champion_AurelionSol:341777427418316801>',
-    24:     '<:Champion_Jax:341777427418316811>',
-    105:    '<:Champion_Fizz:341777427443220480>',
-    42:     '<:Champion_Corki:341777427447676928>',
-    84:     '<:Champion_Akali:341777427451740160>',
-    268:    '<:Champion_Azir:341777427464323074>',
-    245:    '<:Champion_Ekko:341777427468517377>',
-    222:    '<:Champion_Jinx:341777427497746434>',
-    9:      '<:Champion_Fiddlesticks:341777427552403457>',
-    36:     '<:Champion_DrMundo:341777427560923147>',
-    131:    '<:Champion_Diana:341777427590283264>',
-    32:     '<:Champion_Amumu:341777427602604052>',
-    53:     '<:Champion_Blitzcrank:341777427619643403>',
-    201:    '<:Champion_Braum:341777427623575552>',
-    202:    '<:Champion_Jhin:341777427628032011>',
-    30:     '<:Champion_Karthus:341777427636158465>',
-    119:    '<:Champion_Draven:341777427636420608>',
-    69:     '<:Champion_Cassiopeia:341777427636420618>',
-    59:     '<:Champion_JarvanIV:341777427640352778>',
-    150:    '<:Champion_Gnar:341777427648741376>',
-    22:     '<:Champion_Ashe:341777427648872448>',
-    79:     '<:Champion_Gragas:341777427657261066>',
-    432:    '<:Champion_Bard:341777427665780736>',
-    39:     '<:Champion_Irelia:341777427678363659>',
-    74:     '<:Champion_Heimerdinger:341777427682295808>',
-    60:     '<:Champion_Elise:341777427682295818>',
-    43:     '<:Champion_Karma:341777427682557952>',
-    31:     '<:Champion_Chogath:341777427686621184>',
-    81:     '<:Champion_Ezreal:341777427690946560>',
-    114:    '<:Champion_Fiora:341777427699204097>',
-    104:    '<:Champion_Graves:341777427703398400>',
-    429:    '<:Champion_Kalista:341777427724369920>',
-    103:    '<:Champion_Ahri:341777427762249738>',
-    427:    '<:Champion_Ivern:341777427812581386>',
-    28:     '<:Champion_Evelynn:341777427812581396>',
-    420:    '<:Champion_Illaoi:341777427816644608>',
-    41:     '<:Champion_Gangplank:341777427816775680>',
-    122:    '<:Champion_Darius:341777427829227530>',
-    164:    '<:Champion_Camille:341777427900661790>',
-    120:    '<:Champion_Hecarim:341777428076822548>',
-    3:      '<:Champion_Galio:341777428202651648>',
-    34:     '<:Champion_Anivia:341777428710162443>',
-    121:    '<:Champion_Khazix:341777651008274433>',
-    7:      '<:Champion_Leblanc:341777651045892107>',
-    203:    '<:Champion_Kindred:341777651155075073>',
-    96:     '<:Champion_KogMaw:341777651167395841>',
-    20:     '<:Champion_Nunu:341777651251412993>',
-    80:     '<:Champion_Pantheon:341777651293487106>',
-    72:     '<:Champion_Skarner:341777651297550339>',
-    117:    '<:Champion_Lulu:341777651310002177>',
-    236:    '<:Champion_Lucian:341777651322585110>',
-    15:     '<:Champion_Sivir:341777651335430146>',
-    10:     '<:Champion_Kayle:341777651347750913>',
-    62:     '<:Champion_MonkeyKing:341777651356139523>',
-    56:     '<:Champion_Nocturne:341777651385630721>',
-    38:     '<:Champion_Kassadin:341777651423248384>',
-    64:     '<:Champion_LeeSin:341777651440025600>',
-    25:     '<:Champion_Morgana:341777651440025611>',
-    99:     '<:Champion_Lux:341777651444219922>',
-    127:    '<:Champion_Lissandra:341777651460997130>',
-    14:     '<:Champion_Sion:341777651460997131>',
-    89:     '<:Champion_Leona:341777651465322496>',
-    11:     '<:Champion_MasterYi:341777651469647872>',
-    90:     '<:Champion_Malzahar:341777651482230787>',
-    21:     '<:Champion_MissFortune:341777651490488330>',
-    76:     '<:Champion_Nidalee:341777651507134474>',
-    267:    '<:Champion_Nami:341777651507134475>',
-    82:     '<:Champion_Mordekaiser:341777651507265537>',
-    57:     '<:Champion_Maokai:341777651515654144>',
-    54:     '<:Champion_Malphite:341777651515785216>',
-    55:     '<:Champion_Katarina:341777651528237057>',
-    61:     '<:Champion_Orianna:341777651536625664>',
-    33:     '<:Champion_Rammus:341777651561660419>',
-    133:    '<:Champion_Quinn:341777651561660426>',
-    68:     '<:Champion_Rumble:341777651587088384>',
-    102:    '<:Champion_Shyvana:341777651595214858>',
-    85:     '<:Champion_Kennen:341777651607928843>',
-    240:    '<:Champion_Kled:341777651620642817>',
-    35:     '<:Champion_Shaco:341777651649740800>',
-    2:      '<:Champion_Olaf:341777651666780160>',
-    111:    '<:Champion_Nautilus:341777651674906634>',
-    27:     '<:Champion_Singed:341777651675168778>',
-    421:    '<:Champion_RekSai:341777651683295233>',
-    92:     '<:Champion_Riven:341777651683295242>',
-    113:    '<:Champion_Sejuani:341777651683426306>',
-    75:     '<:Champion_Nasus:341777651696009216>',
-    107:    '<:Champion_Rengar:341777651700334592>',
-    78:     '<:Champion_Poppy:341777651704397835>',
-    58:     '<:Champion_Renekton:341777651763118090>',
-    13:     '<:Champion_Ryze:341777651804930049>',
-    497:    '<:Champion_Rakan:341777652077821963>',
-    98:     '<:Champion_Shen:341777652086079498>',
-    6:      '<:Champion_Urgot:341777778921701387>',
-    110:    '<:Champion_Varus:341777778925895692>',
-    17:     '<:Champion_Teemo:341777778972295170>',
-    77:     '<:Champion_Udyr:341777779009912836>',
-    45:     '<:Champion_Veigar:341777779030753281>',
-    48:     '<:Champion_Trundle:341777779035078677>',
-    254:    '<:Champion_Vi:341777779035078691>',
-    37:     '<:Champion_Sona:341777779043598337>',
-    67:     '<:Champion_Vayne:341777779056181270>',
-    112:    '<:Champion_Viktor:341777779098124290>',
-    106:    '<:Champion_Volibear:341777779118964739>',
-    134:    '<:Champion_Syndra:341777779119095818>',
-    163:    '<:Champion_Taliyah:341777779140067329>',
-    16:     '<:Champion_Soraka:341777779143999498>',
-    412:    '<:Champion_Thresh:341777779169296384>',
-    26:     '<:Champion_Zilean:341777779173359617>',
-    91:     '<:Champion_Talon:341777779186073600>',
-    29:     '<:Champion_Twitch:341777779186073603>',
-    4:      '<:Champion_TwistedFate:341777779215302656>',
-    23:     '<:Champion_Tryndamere:341777779244924928>',
-    8:      '<:Champion_Vladimir:341777779265765376>',
-    154:    '<:Champion_Zac:341777779269828608>',
-    101:    '<:Champion_Xerath:341777779270090762>',
-    157:    '<:Champion_Yasuo:341777779282673673>',
-    161:    '<:Champion_VelKoz:341777779290931209>',
-    44:     '<:Champion_Taric:341777779290931210>',
-    50:     '<:Champion_Swain:341777779312033792>',
-    143:    '<:Champion_Zyra:341777779332874250>',
-    238:    '<:Champion_Zed:341777779337068544>',
-    19:     '<:Champion_Warwick:341777779374948353>',
-    115:    '<:Champion_Ziggs:341777779479543808>',
-    18:     '<:Champion_Tristana:341777779483738122>',
-    223:    '<:Champion_TahmKench:341777779509035008>',
-    498:    '<:Champion_Xayah:341777779894779904>',
-    5:      '<:Champion_XinZhao:341777779924402179>',
-    83:     '<:Champion_Yorick:341777780343832577>',
-    141:    '<:Champion_Kayne:343597241367265281>',
-    516:    '<:Champion_Ornn:349955854000455680>'
-}
-
-SPELL_EMOJIS = {
-    4:      '<:Spell_Flash:341780677164793858>',
-    21:     '<:Spell_Barrier:341780677168988172>',
-    1:      '<:Spell_Cleanse:341780677244747777>',
-    6:      '<:Spell_Ghost:341780677253005314>',
-    13:     '<:Spell_Clarity:341780677324177420>',
-    14:     '<:Spell_Ignite:341780677416583169>',
-    11:     '<:Spell_Smite:341780677487755265>',
-    7:      '<:Spell_Heal:341780677517377538>',
-    3:      '<:Spell_Exhaust:341780677651464192>',
-    12:     '<:Spell_Teleport:341780677697470464>',
-    32:     '<:Spell_Mark:341780677890539521>'
-}
-
-BDT_EMOJIS = {
-    'bb': '<:Blue_Baron:344596340795244554>',
-    'bd': '<:Blue_Dragon:344596340237533215>',
-    'bt': '<:Blue_Turret:344596340099252225>',
-    'rb': '<:Red_Baron:344596340484866048>',
-    'rd': '<:Red_Dragon:344596340434534421>',
-    'rt': '<:Red_Turret:344596340409630721>'
-}
+CHAMPION_EMOJIS, SPELL_EMOJIS, BDT_EMOJIS = {}, {}, {}
 
 REGION_IMAGES = {
     'br':   'https://i.imgur.com/FJ6ahZ0.png',
