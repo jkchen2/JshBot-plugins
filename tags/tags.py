@@ -754,7 +754,6 @@ async def _import_tag_status(bot, context, response):
         ('full_name', str), ('flags', int), ('content', (list, str)),
         ('author', int), ('created', int), ('hits', int), ('last_used', (None, int)),
         ('last_used_by', (None, int)), ('volume', float))
-    bot.extra = response.extra
     for index, tag_pair in enumerate(response.extra.items()):
         _, tag = tag_pair
 
@@ -886,7 +885,10 @@ async def tag_retrieve(bot, context):
         audio_source = discord.PCMVolumeTransformer(audio_source, volume=tag.volume)
         voice_client = await utilities.join_and_ready(
             bot, voice_channel, is_mod=context.elevation >= 1)
-        voice_client.play(audio_source)
+        try:
+            voice_client.play(audio_source)
+        except discord.ClientException as e:
+            raise CBException("Audio is already playing. (Try again in a few seconds)")
     else:
         return Response(content=content)
 
