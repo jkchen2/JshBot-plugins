@@ -886,7 +886,7 @@ async def tag_retrieve(bot, context):
         voice_client = await utilities.join_and_ready(
             bot, voice_channel, is_mod=context.elevation >= 1)
         try:
-            voice_client.play(audio_source)
+            await utilities.play_and_leave(bot, context.guild, audio_source)
         except discord.ClientException as e:
             raise CBException("Audio is already playing. (Try again in a few seconds)")
     else:
