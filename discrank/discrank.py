@@ -747,19 +747,31 @@ async def _clean_match(
 
         # Get total kills in match
         total_kills = 0
+        blue_kills, red_kills = 0, 0
         for player in match_data['participants']:
-            total_kills += player['stats']['kills']
+            player_kills = player['stats']['kills']
+            total_kills += player_kills
+            if player['teamId'] == 100:
+                blue_kills += player_kills
+            else:
+                red_kills += player_kills
         total_kills = 1 if total_kills <= 0 else total_kills
+        blue_kills, red_kills = max(1, blue_kills), max(1, red_kills)
 
         # Pull information from each entry of player_game_data
         for index, player in enumerate(match_data['participants']):
+
+            if player['teamId'] == 100:
+                player_team, team_kills = blue_players, blue_kills
+            else:
+                player_team, team_kills = red_players, red_kills
 
             # Get spells and KDA with match details
             stats = player['stats']
             kills, deaths, assists = (stats['kills'], stats['deaths'], stats['assists'])
             value = (kills + assists) / (1 if deaths == 0 else deaths)
             kda_values = [kills, deaths, assists]
-            participation = '{:.1f}%'.format(100 * (kills + assists) / total_kills)
+            participation = '{:.1f}%'.format(100 * (kills + assists) / team_kills)
             kda = '{}/{}/{} ({:.2f} | {})'.format(kills, deaths, assists, value, participation)
 
             # Get kill tier
@@ -772,7 +784,6 @@ async def _clean_match(
                     kill_tier = tier_index + 1
                     kill_tier_frequency = tier_test
 
-            player_team = blue_players if player['teamId'] == 100 else red_players
             player_team.append({
                 'summoner_name': players[index].get('summoner_name', '[Hidden]'),
                 'summoner_id': players[index].get('summoner_id', ''),
