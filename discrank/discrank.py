@@ -1303,7 +1303,8 @@ def _build_match_embed(match):
                 team_bdt_emojis, team['bdt']))
             team_blurb.append('Team KDA: [{0[0]}/{0[1]}/{0[2]}]'.format(team_kda))
             embed.set_field_at(
-                field_index+3, name='Multi | Damage | CS | Gold', value='\n'.join(columns[2]))
+                field_index+3, name='Multi | Damage | CS | Gold',
+                value='\u200b' + '\n'.join(columns[2]))
             column_2_name = 'Champion | Spells | KDA'
         else:
             column_2_name = 'Champion | Spells'
@@ -1312,9 +1313,10 @@ def _build_match_embed(match):
         embed.set_field_at(
             field_index, name=team_title, inline=False,
             value='\u200b{}'.format(' | '.join(team_blurb)))
-        embed.set_field_at(field_index+1, name='Summoner', value='\n'.join(columns[0]))
         embed.set_field_at(
-            field_index+2, name=column_2_name, value='\n'.join(columns[1]))
+            field_index+1, name='Summoner', value='\u200b' + '\n'.join(columns[0]))
+        embed.set_field_at(
+            field_index+2, name=column_2_name, value='\u200b' + '\n'.join(columns[1]))
 
     return embed
 
