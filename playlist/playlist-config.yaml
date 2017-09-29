@@ -1,0 +1,16 @@
+# If the whitelist is enabled, only the given guild IDs will have
+# access to the music player
+use_whitelist: No
+whitelist:
+    - 000
+
+# Threshold in seconds
+max_threshold: 720
+
+# If a song has a length longer than the threshold, cut it off
+# at the cutoff seconds
+max_cutoff: 600
+
+# If a song has a length longer than the hard threshold, do not add
+# to the playlist
+hard_threshold: 1800
