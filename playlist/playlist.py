@@ -701,9 +701,9 @@ class MusicPlayer():
             logger.debug("Download finished.")
         # TODO: Add exception handling
         # TODO: Change ffmpeg_options for docker version
-        ffmpeg_options = '-protocol_whitelist "file,http,https,tcp,tls"'
-        audio_source = discord.FFmpegPCMAudio(sound_file, before_options=ffmpeg_options)
-        #audio_source = discord.FFmpegPCMAudio(sound_file)
+        #ffmpeg_options = '-protocol_whitelist "file,http,https,tcp,tls"'
+        #audio_source = discord.FFmpegPCMAudio(sound_file, before_options=ffmpeg_options)
+        audio_source = discord.FFmpegPCMAudio(sound_file)
 
         audio_source = discord.PCMVolumeTransformer(audio_source, volume=self.volume)
         self.voice_client.play(audio_source)
