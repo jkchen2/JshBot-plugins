@@ -678,25 +678,19 @@ class MusicPlayer():
             logger.debug("Not found in cache. Downloading...")
 
             try:
-                sound_file = await data.add_to_cache(self.bot, track.downloadurl, name=track.url)
-            except Exception as e:  # Attempt to redownload from base url
-                logger.debug("Failed to download the URL somehow. Attempting to redownload...")
-                self.bot.extra = e
+                #sound_file = await data.add_to_cache(self.bot, track.downloadurl, name=track.url)
                 options = {'format': 'bestaudio/best', 'noplaylist': True}
                 downloader = YoutubeDL(options)
-                try:
-                    info = await utilities.future(
-                        downloader.extract_info, track.url, download=False)
-                    url = info['formats'][0]['url']
-                    sound_file = await data.add_to_cache(self.bot, url, name=track.url)
-                except Exception as e:
-                    logger.debug("Failed to download the track twice. Failsafe skipping...", e)
-                    self.bot.extra = e
-                    self.notification = "Failed to download the last track. Failsafe skipping..."
-                    asyncio.ensure_future(self.update_interface())
-                    self.state = States.PAUSED
-                    asyncio.ensure_future(self.play(track_index=0))
-                    return
+                sound_file = await data.add_to_cache_ydl(self.bot, downloader, track.url)
+            except Exception as e:  # Attempt to redownload from base url
+                logger.debug("Failed to download the track. Failsafe skipping...", e)
+                self.bot.extra = e
+                self.notification = "Failed to download {}. Failsafe skipping...".format()
+                # asyncio.ensure_future(self.update_interface())
+                self.state = States.PAUSED
+                # asyncio.ensure_future(self.play(track_index=0))
+                self._skip_track()
+                return
 
             logger.debug("Download finished.")
         # TODO: Add exception handling
