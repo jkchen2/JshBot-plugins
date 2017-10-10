@@ -91,6 +91,10 @@ def get_commands(bot):
                     check_error='Must be between 10 and {} seconds.'.format(default_cutoff)),
                 Opt('djrole', attached='role', optional=True, group='options',
                     convert=utilities.RoleConverter()),
+                Opt('channel', attached='text channel', optional=True, group='options',
+                    quotes_recommended=False,
+                    convert=utilities.ChannelConverter(constraint=discord.TextChannel),
+                    doc='Sets the text channel the player will use for the interface.'),
                 Opt('switchcontrol', optional=True, group='options',
                     doc='Switches between DJ only, partial, and public control types.'),
                 Opt('switchmode', optional=True, group='options',
@@ -162,6 +166,7 @@ class MusicPlayer():
         self.skip_voters = []
         self.skip_threshold = 0.5
         self.shuffle_stack = []
+        self.autopaused = False
         self.update_config()
         if self.mode == Modes.QUEUE:
             self.track_index = 0
@@ -303,7 +308,7 @@ class MusicPlayer():
         class VoiceChange(Enum):
             NORMAL, LEFT, JOINED = range(3)
         def check(member, before, after):
-            if member.bot or not (before or after):
+            if not member == self.bot.user and (member.bot or not (before or after)):
                 return VoiceChange.NORMAL
             elif after and after.channel == self.voice_channel:
                 if not before or before.channel != self.voice_channel:
@@ -316,16 +321,11 @@ class MusicPlayer():
                     "Listener check did not account for: Before: %s, After: %s",
                     before, after)
                 return VoiceChange.NORMAL
-            '''
-            elif after and after.channel != self.voice_channel:
-                return before and before.channel == self.voice_channel  # Leave (switch)
-            elif not after:
-                return before and before.channel == self.voice_channel  # Leave (disconnected)
-            '''
 
         # Preliminary check
         self.listeners = len([it for it in self.voice_channel.members if not it.bot])
 
+        # Wait on voice state updates to determine users entering/leaving
         logger.debug("Listener loop (voice state checker) started.")
         while True:
             result = await self.bot.wait_for('voice_state_update')
@@ -334,8 +334,23 @@ class MusicPlayer():
                 logger.warn("Voice state update returned empty!")
                 continue
             elif self.state == States.STOPPED:
-                logger.warn("Listener loop wasn't canceled for some reason. Stopping loop.")
+                logger.warn("Listener loop wasn't cancelled for some reason. Stopping loop.")
                 return
+
+            # Check for self changes
+            if result[0] == self.bot.user:
+                if not result[2]:  # Disconnected
+                    # TODO: Consider adding failsafe stop
+                    logger.warn("Voice disconnected, detected from _listener_loop.")
+                    return
+                if result[1] != result[2]:
+                    logger.debug("Bot was dragged to a new voice channel.")
+                    if result[2].channel == self.guild.afk_channel:  # TODO: Act on AFK channel
+                        logger.warn("Moved to the AFK channel. Failsafe stopping.")
+                    self.voice_channel = result[2].channel
+                    self.voice_client = self.guild.voice_client
+
+            # Update listener count
             self.listeners = len([it for it in self.voice_channel.members if not it.bot])
             logger.debug("Listeners: %s", self.listeners)
             self.update_listeners()
@@ -353,6 +368,17 @@ class MusicPlayer():
                 logger.debug("User joined the voice channel")
                 pass
 
+            if self.listeners == 0:
+                logger.debug("Automatically pausing.")
+                self.autopaused = True
+                self.notification = "The player has been automatically paused."
+                asyncio.ensure_future(self.pause())
+            elif self.listeners == 1 and self.state == States.PAUSED and self.autopaused:
+                logger.debug("Automatically resuming.")
+                self.autopaused=False
+                self.notification = "The player has been automatically resumed."
+                asyncio.ensure_future(self.play())
+            # TODO: Consider setting autopause to false by default
 
     # Updates the number of active listeners and skips the song if enough people have voted
     def update_listeners(self):
@@ -952,6 +978,9 @@ def _get_music_player(bot, guild):
 
 
 async def _check_active_player(bot, guild, autodelete_time=5):
+    import_lock = data.get(bot, __name__, 'import_lock', guild_id=guild.id, volatile=True)
+    if import_lock:
+        raise CBException("A track import is in progress. Please wait for it to finish.")
     music_player = _get_music_player(bot, guild)
     if music_player:
         await music_player.update_state()
@@ -968,8 +997,6 @@ async def _add_track_to_db(bot, guild, check_url, user_id=0, timestamp=0):
     downloader = YoutubeDL(options)
     try:
         info = await utilities.future(downloader.extract_info, check_url, download=False)
-        # TODO: remove debug
-        bot.extra = info
         chosen_format = info['formats'][0]
         download_url = chosen_format['url']
         title = info.get('title', 'Unknown')
@@ -1097,7 +1124,7 @@ async def remove_track(bot, context):
     if use_player_interface:
         logger.debug("Removed index: [%s] Current index: [%s]", index, music_player.track_index)
         if index <= music_player.track_index:  # Shift track index down
-            music_player.track_index -= 1  # TODO: Consider index of -1
+            music_player.track_index -= 1
         if index == music_player.track_index + 1:  # Skip track
             music_player._skip_track()
         await music_player.update_interface(
@@ -1162,9 +1189,14 @@ async def import_tracklist(bot, context):
         raise CBException(
             'The player must be stopped before importing tracks.', autodelete=autodelete)
 
-    file_url = context.message.attachments[0].url
-    tracklist_file = await utilities.download_url(bot, file_url, use_fp=True)
-    tracklist_data = yaml.load(tracklist_file)
+    data.add(bot, __name__, 'import_lock', True, guild_id=context.guild.id, volatile=True)
+    try:
+        file_url = context.message.attachments[0].url
+        tracklist_file = await utilities.download_url(bot, file_url, use_fp=True)
+        tracklist_data = yaml.load(tracklist_file)
+    except Exception as e:
+        data.remove(bot, __name__, 'import_lock', guild_id=context.guild.id, volatile=True)
+        raise CBException("Failed to load the tracklist file.", e=e)
 
     return Response(
         content="Importing tracks...",
@@ -1174,17 +1206,11 @@ async def import_tracklist(bot, context):
 
 
 async def _import_tracklist_status(bot, context, response):
-    import_lock = data.get(
-        bot, __name__, 'import_lock', guild_id=context.guild.id, volatile=True, default=False)
-    if import_lock:
-        raise CBException("Another import is currently in progress.")
-    data.add(bot, __name__, 'import_lock', True, guild_id=context.guild.id, volatile=True)
-
     try:
         last_update_time = time.time()
         total_imported = 0
         for _, track_blob in sorted(response.extra.items()):
-            bot.extra = track_blob  # TODO: remove
+            bot.extra = track_blob  # TODO: remove debug
             title, url, _, info, _ = track_blob.split('\n')
             user_id, _, timestamp = info.split()[3].partition('|')
             entry_data = await _add_track_to_db(
@@ -1268,8 +1294,13 @@ async def configure_player(bot, context):
         bot, context.guild, autodelete_time=10)
     options = context.options
 
-    if 'switchmode' in options and use_player_interface:
-        raise CBException("Cannot switch player modes while it is active.", autodelete=autodelete)
+    if use_player_interface:
+        if 'switchmode' in options:
+            raise CBException(
+                "Cannot switch player modes while it is active.", autodelete=autodelete)
+        elif 'switchcontrol' in options:
+            raise CBException(
+                "Cannot set text channel while the player is active.", autodelete=autodelete)
 
     default_threshold = configurations.get(bot, __name__, key='max_threshold')
     default_cutoff = configurations.get(bot, __name__, key='max_cutoff')
@@ -1290,6 +1321,11 @@ async def configure_player(bot, context):
         dj_role = options['djrole']
         data.add_custom_role(bot, __name__, dj_role, 'dj')
         changes.append('Set the DJ role to {}.'.format(dj_role.mention))
+
+    if 'channel' in options:
+        text_channel = options['channel']
+        data.add(bot, __name__, 'channel', text_channel.id, guild_id=guild_id)
+        changes.append('Set the text channel restriction to {}.'.format(text_channel.mention))
 
     if 'switchcontrol' in options:
         control = data.get(bot, __name__, 'control', guild_id=guild_id, default=Control.PARTIAL)
@@ -1380,6 +1416,20 @@ async def _confirm_clear_playlist(bot, context, response, result):
 async def setup_player(bot, context):
     music_player, use_player_interface, autodelete = await _check_active_player(bot, context.guild)
 
+    # Channel restriction checks
+    channel_restriction_id = data.get(bot, __name__, 'channel', guild_id=context.guild.id)
+    if channel_restriction_id not in [it.id for it in context.guild.channels]:
+        raise CBException(
+            "The music player does not have an assigned text channel. Please see "
+            "`{}help playlist configure` for more information.".format(
+                utilities.get_invoker(bot, guild=context.guild)))
+    if channel_restriction_id != context.channel.id:
+        channel_restriction = data.get_channel(bot, channel_restriction_id, guild=context.guild)
+        raise CBException(
+            "The music player must used in the assigned text channel, {}.".format(
+                channel_restriction.mention))
+
+    # Voice channel checks
     if not context.author.voice:
         raise CBException(
             "You must be in a voice channel to use the player.", autodelete=autodelete)
@@ -1404,11 +1454,19 @@ async def setup_player(bot, context):
     else:
         new_track_index = None
 
+    # Check autoplay permissions
+    use_autoplay = False
+    if 'play' in context.options:
+        is_dj = data.has_custom_role(bot, __name__, 'dj', member=context.author)
+        control_type = data.get(
+            bot, __name__, 'control', guild_id=context.guild.id, default=Control.PARTIAL)
+        use_autoplay = control_type == Control.ALL or is_dj
+
     # Setup new player
     if music_player is None or music_player.state == States.STOPPED:
         logger.debug("Creating new music player.")
         music_player = MusicPlayer(
-            bot, context.message, autoplay='play' in context.options, track_index=new_track_index)
+            bot, context.message, autoplay=use_autoplay, track_index=new_track_index)
         data.add(
             bot, __name__, 'music_player', music_player,
             guild_id=context.guild.id, volatile=True)
@@ -1416,17 +1474,13 @@ async def setup_player(bot, context):
     # Update player message or change tracks
     else:
         message_history = await context.channel.history(limit=2).flatten()
-        if 'play' in context.options:
-            autoplay = True
-            if new_track_index is not None:
-                music_player.notification = '{} skipped to {} (track {}).'.format(
-                    context.author.mention, music_player._build_hyperlink(new_track),
-                    new_track_index + 1)
-        else:
-            autoplay = False
+        if use_autoplay and new_track_index is not None:
+            music_player.notification = '{} skipped to {} (track {}).'.format(
+                context.author.mention, music_player._build_hyperlink(new_track),
+                new_track_index + 1)
 
         play_track = bool(
-            autoplay and (music_player.state == States.PAUSED or new_track_index is not None))
+            use_autoplay and (music_player.state == States.PAUSED or new_track_index is not None))
 
         if len(message_history) > 1 and message_history[1].id == music_player.message.id:
             logger.debug("Music player already detected in place.")
@@ -1438,5 +1492,5 @@ async def setup_player(bot, context):
         else:
             logger.debug("Setting new message. Here's the state: %s", music_player.state)
             await music_player.set_new_message(
-                context.channel, autoplay=autoplay if play_track else None,
+                context.channel, autoplay=use_autoplay if play_track else None,
                 track_index=new_track_index)
