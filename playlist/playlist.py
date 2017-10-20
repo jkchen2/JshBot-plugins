@@ -1193,10 +1193,24 @@ async def import_tracklist(bot, context):
     try:
         file_url = context.message.attachments[0].url
         tracklist_file = await utilities.download_url(bot, file_url, use_fp=True)
+
         tracklist_data = yaml.load(tracklist_file)
+        if isinstance(tracklist_data, str):  # Read lines instead
+            tracklist_file.seek(0)
+            tracklist_blob = tracklist_file.read().decode('utf8').replace('\r\n', '\n').strip()
+            tracklist_data = tracklist_blob.split('\n')
+        logger.debug("Tracklist data: %s", tracklist_data)
+
+        if not tracklist_data or len(tracklist_data) == 0:
+            raise CBException("The tracklist file is empty.")
+        elif len(tracklist_data) > 100:
+            raise CBException("Cannot import more than 100 tracks at a time.")
     except Exception as e:
         data.remove(bot, __name__, 'import_lock', guild_id=context.guild.id, volatile=True)
-        raise CBException("Failed to load the tracklist file.", e=e)
+        if isinstance(e, BotException):
+            raise e
+        else:
+            raise CBException("Failed to load the tracklist file.", e=e)
 
     return Response(
         content="Importing tracks...",
@@ -1207,12 +1221,22 @@ async def import_tracklist(bot, context):
 
 async def _import_tracklist_status(bot, context, response):
     try:
+        if isinstance(response.extra, list):
+            response.extra = OrderedDict((it[0], it[1]) for it in enumerate(response.extra))
         last_update_time = time.time()
         total_imported = 0
         for _, track_blob in sorted(response.extra.items()):
             bot.extra = track_blob  # TODO: remove debug
-            title, url, _, info, _ = track_blob.split('\n')
-            user_id, _, timestamp = info.split()[3].partition('|')
+            cleaned = track_blob.strip()
+            if not cleaned:
+                continue
+            elif '\n' in cleaned:
+                title, url, _, info, _ = track_blob.split('\n')
+                user_id, _, timestamp = info.split()[3].partition('|')
+            else:
+                title = url = track_blob
+                user_id, timestamp = context.author.id, time.time()
+
             entry_data = await _add_track_to_db(
                 bot, context.guild, url, int(user_id), int(timestamp))
             total_imported += 1
@@ -1345,10 +1369,14 @@ async def configure_player(bot, context):
     dj_role = data.get_custom_role(bot, __name__, context.guild, 'dj')
     control = data.get(bot, __name__, 'control', guild_id=guild_id, default=Control.PARTIAL)
     mode = data.get(bot, __name__, 'mode', guild_id=guild_id, default=Modes.QUEUE)
+    text_channel_id = data.get(bot, __name__, 'channel', guild_id=guild_id)
+    text_channel = context.guild.get_channel(text_channel_id)
 
     embed = discord.Embed(
         title='Player configuration', description=(
-            'Threshold: {}\nCutoff: {}\nDJ Role: {}\nControl: {}\nPlayer mode: {}\n'.format(
+            'Text channel: {}\nThreshold: {}\nCutoff: {}\n'
+            'DJ Role: {}\nControl: {}\nPlayer mode: {}\n'.format(
+                text_channel.mention if text_channel else 'None',
                 '{} seconds'.format(threshold),
                 '{} seconds'.format(cutoff),
                 dj_role.mention if dj_role else 'None',
