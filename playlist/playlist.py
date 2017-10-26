@@ -8,6 +8,7 @@ import math
 import yaml
 import discord
 
+from urllib.parse import urlparse
 from collections import OrderedDict
 from psycopg2.extras import Json
 
@@ -64,7 +65,7 @@ def get_commands(bot):
             SubCommand(
                 Opt('add'),
                 Arg('url', argtype=ArgTypes.MERGED),
-                doc='Adds a song to the playlist.',
+                doc='Adds a song to the playlist. Can either be a URL or a YouTube search query',
                 function=add_track),
             SubCommand(
                 Opt('remove'),
@@ -411,7 +412,7 @@ class MusicPlayer():
         self.satellite_data = extra = self.now_playing.extra
 
         embed = discord.Embed()
-        keys = ('views', 'likes', 'dislikes', 'uploaded')
+        keys = ('uploader', 'views', 'likes', 'dislikes', 'uploaded')
         if any(key in extra for key in keys):
             info_list = ['{}: {}'.format(key.title(), extra[key]) for key in keys if key in extra]
             embed.add_field(name='Info', value='\n'.join(info_list))
@@ -993,10 +994,24 @@ async def _check_active_player(bot, guild, autodelete_time=5):
 
 async def _add_track_to_db(bot, guild, check_url, user_id=0, timestamp=0):
     hard_threshold = configurations.get(bot, __name__, key='hard_threshold')
-    options = {'format': 'bestaudio/best', 'noplaylist': True}
+    options = {'format': 'bestaudio/best', 'noplaylist': True, 'default-search': 'ytsearch'}
     downloader = YoutubeDL(options)
+
+    # Check for a direct URL (SO: 7160737)
+    try:
+        test = urlparse(check_url)
+        is_url = test.scheme and test.netloc and test.path
+    except:
+        is_url = False
+
+    if not is_url and not check_url.lower().startswith('ytsearch:'):
+        check_url = 'ytsearch:' + check_url.strip()
+
     try:
         info = await utilities.future(downloader.extract_info, check_url, download=False)
+        if not is_url:  # Select first result on search
+            info = info['entries'][0]
+            check_url = info['webpage_url']
         chosen_format = info['formats'][0]
         download_url = chosen_format['url']
         title = info.get('title', 'Unknown')
@@ -1006,6 +1021,7 @@ async def _add_track_to_db(bot, guild, check_url, user_id=0, timestamp=0):
         views = info.get('view_count', None)
         description = info.get('description', None)
         upload_date = info.get('upload_date', None)
+        uploader = info.get('uploader', None)
         if 'duration' in info:
             duration = int(info['duration'])
         else:  # Manual download and check
@@ -1037,6 +1053,8 @@ async def _add_track_to_db(bot, guild, check_url, user_id=0, timestamp=0):
     if upload_date is not None:
         extra_data['uploaded'] = '{}/{}/{}'.format(
             upload_date[4:6], upload_date[6:8], upload_date[:4])
+    if uploader is not None:
+        extra_data['uploader'] = uploader
     entry_data = [
         check_url,
         download_url,
@@ -1071,7 +1089,7 @@ async def add_track(bot, context):
         e.autodelete = autodelete
         raise e
 
-    response = "Song added to playlist."
+    response = "Song `{}` was added to the playlist.".format(track_data[2])
     title, duration = track_data[2], track_data[3]
     if duration > threshold:
         response = (
@@ -1132,7 +1150,7 @@ async def remove_track(bot, context):
                 context.author.id, music_player._build_hyperlink(track_info), index + 1))
 
     return Response(
-        content="Removed {} from the queue.".format(track_info.title),
+        content="Removed `{}` from the queue.".format(track_info.title),
         message_type=MessageTypes.REPLACE if use_player_interface else MessageTypes.NORMAL,
         delete_after=autodelete if use_player_interface else None,
         extra=autodelete if use_player_interface else None)
@@ -1322,7 +1340,7 @@ async def configure_player(bot, context):
         if 'switchmode' in options:
             raise CBException(
                 "Cannot switch player modes while it is active.", autodelete=autodelete)
-        elif 'switchcontrol' in options:
+        elif 'channel' in options:
             raise CBException(
                 "Cannot set text channel while the player is active.", autodelete=autodelete)
 
