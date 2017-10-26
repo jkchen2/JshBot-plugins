@@ -90,8 +90,10 @@ async def _cycle_timer(bot, scheduled_time, payload, search, destination, late):
 async def _cycle_specific(bot, cycle_type):
     table_name = 'txyz_' + TYPE_NAMES[cycle_type]
     cursor = data.db_select(bot, from_arg=table_name, additional='ORDER BY RANDOM()', limit=1)
-    result = cursor.fetchone()[1]
-    if not result:
+    result = cursor.fetchone()
+    if result:
+        result = result[1]
+    else:
         result = DEFAULTS[cycle_type]
     txyz_guild = bot.get_guild(TXYZ_GUILD)
     selected_channel = txyz_guild.voice_channels[cycle_type]
