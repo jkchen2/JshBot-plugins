@@ -288,9 +288,14 @@ async def _build_summoner_embed(bot, summoner):
         game_mode = MODES.get(newest_match['game_mode'], 'Unknown')
         embed.add_field(name='{} match [{}]'.format(status, game_mode), value=line)
 
+    time_delta = time.time() - summoner.last_updated
+    if time_delta > 10:
+        time_ago = utilities.get_time_string(time_delta, text=True, resolution=1) + ' ago'
+    else:
+        time_ago = 'just now'
     embed.set_footer(
-        text="{} | ID {} | AID {} | Updated".format(
-            summoner.region.upper(), summoner.summoner_id, summoner.account_id),
+        text="{} | ID {} | AID {} | Updated {}".format(
+            summoner.region.upper(), summoner.summoner_id, summoner.account_id, time_ago),
         icon_url=REGION_IMAGES.get(summoner.region, UNKNOWN_EMOJI_URL))
     return embed
 
