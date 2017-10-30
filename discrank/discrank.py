@@ -1386,6 +1386,10 @@ async def bot_on_ready_boot(bot):
     WATCHER = watcher
     CHAMPIONS, SPELLS = await _get_static_data(bot)
 
+    # Add external emojis permission
+    permissions = {'external_emojis': "Shows champion and spell icons."}
+    utilities.add_bot_permissions(bot, __name__, **permissions)
+
     logger.info('discrank.py is ready!')
 
 
