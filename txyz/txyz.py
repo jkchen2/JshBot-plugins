@@ -18,7 +18,7 @@ CBException = ConfiguredBotException('txyz plugin')
 uses_configuration = False
 
 TXYZ_GUILD = 371885514049191937
-DEFAULTS = ["Looks like my head is a bit empty right now.", "💔"]
+DEFAULTS = ["Looks like my head is a bit empty right now.", "💔︎"]
 TYPE_NAMES = ['thoughts', 'footers']
 
 
