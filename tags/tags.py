@@ -424,7 +424,7 @@ async def tag_edit(bot, context):
         elif 'random' in flags:
             raise CBException("Cannot set text for a random tag.")
         elif 'sound' in flags:  # Check audio length
-            length = await _get_checked_durations(bot, [new_content])[0]
+            length = (await _get_checked_durations(bot, [new_content]))[0]
             new_tag[2][0] = length
             additions.append("Set tag URL.")
         else:
