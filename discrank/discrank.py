@@ -384,7 +384,7 @@ async def _get_summoner(bot, name, region, force_update=False):
         mastery_future = future(
             WATCHER.champion_mastery.by_summoner, PLATFORMS[region], summoner_id)
         try:
-            info = await utilities.parallelize([league_future, mastery_future])
+            info = await utilities.parallelize([league_future, mastery_future], pass_error=True)
         except HTTPError as e:
             handle_lol_exception(e)
 
@@ -843,7 +843,7 @@ def _cache_match(bot, cleaned_match):
         if entry_count > 10000:
             logger.debug("Replacing oldest match in cache with: %s", cleaned_match['id'])
             oldest_id = data.db_select(
-                bot, from_arg='lol_match_cache', additional='ORDER BY last_updated ASC',
+                bot, from_arg='lol_match_cache', additional='ORDER BY last_accessed ASC',
                 limit=1, safe=False).fetchone().match_id
             data.db_update(
                 bot, 'lol_match_cache', set_arg=set_arg,
