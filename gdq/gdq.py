@@ -299,7 +299,9 @@ async def _update_schedule(bot):
         if entry_class == 'day-split':
             continue
 
-        subentries = [subentry.text for subentry in entry.find_all('td')][:2]
+        subentries = [subentry.text for subentry in entry.find_all('td')]
+        if subentries[0].startswith(' '):  # Second column
+            subentries = subentries[:2]
         if entry_class == 'second-row':  # Extra data for the last game
             estimation, run_type = subentries
             split_estimate = estimation.split(':')
