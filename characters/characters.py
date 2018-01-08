@@ -318,7 +318,7 @@ async def _process_data(bot, author, url, pass_error=False):
 
 async def _cancel_menu(bot, context, response, result, timed_out):
     if timed_out:
-        await response.edit(content="Timed out.")
+        await response.message.edit(content="Timed out.")
         return
     if not result:
         return
@@ -347,7 +347,7 @@ async def character_create(bot, context):
     if tracker:
         return Response(
             content=(
-                "You are currently already creating or editing an entry. "
+                "You are currently already creating or editing a character entry. "
                 "Would you like to cancel your current session?"),
             message_type=MessageTypes.INTERACTIVE,
             extra_function=_cancel_menu,
@@ -390,7 +390,7 @@ async def character_edit(bot, context):
     if tracker:
         return Response(
             content=(
-                "You are currently already creating or editing an entry. "
+                "You are currently already creating or editing a character entry. "
                 "Would you like to cancel your current session?"),
             message_type=MessageTypes.INTERACTIVE,
             extra_function=_cancel_menu,
