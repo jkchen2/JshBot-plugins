@@ -2,6 +2,7 @@ import discord
 import datetime
 import time
 import json
+import codecs
 
 from urllib.parse import urlparse
 from psycopg2.extras import Json
@@ -191,8 +192,9 @@ async def _create_session(bot, owner, editing=None):
 
 async def _process_data(bot, author, url, pass_error=False):
     raw_data = await utilities.download_url(bot, url, use_fp=True)
+    reader = codecs.getreader('utf-8')  # SO: 6862770
     try:
-        parsed = json.load(raw_data)
+        parsed = json.load(reader(raw_data))
     except Exception as e:
         raise CBException("Failed to load the raw data.", e=e)
 
