@@ -363,7 +363,7 @@ async def character_create(bot, context):
     # Use the provided character file
     if context.message.attachments:
         content = await _process_data(
-            bot, context.author, conext.message.attachments[0].url, pass_error=True)
+            bot, context.author, context.message.attachments[0].url, pass_error=True)
         return Response(content=content)
 
     # Use the online entry creator
