@@ -65,17 +65,18 @@ def get_commands(bot):
                 function=character_create),
             SubCommand(
                 Opt('remove'),
-                Arg('name', argtype=ArgTypes.MERGED, convert=CharacterConverter()),
+                Arg('character name', argtype=ArgTypes.MERGED, convert=CharacterConverter()),
                 doc='Removes the given character entry under your name.',
                 function=character_remove),
             SubCommand(
                 Opt('edit'),
-                Arg('name', argtype=ArgTypes.MERGED, convert=CharacterConverter()),
+                Arg('character name', argtype=ArgTypes.MERGED, convert=CharacterConverter()),
                 doc='Provides a link that allows you to edit the given character.',
                 function=character_edit),
             SubCommand(
                 Opt('list'),
-                Arg('user', argtype=ArgTypes.MERGED_OPTIONAL, convert=utilities.MemberConverter()),
+                Arg('user', argtype=ArgTypes.MERGED_OPTIONAL,
+                    convert=utilities.MemberConverter(server_only=False)),
                 doc='Lists the characters of the given user.',
                 function=character_list),
             SubCommand(
@@ -85,11 +86,12 @@ def get_commands(bot):
                 doc='Forcibly removes the given character.',
                 elevated_level=1, function=character_forceremove),
             SubCommand(
-                Arg('user', argtype=ArgTypes.OPTIONAL, convert=utilities.MemberConverter()),
+                Arg('user', argtype=ArgTypes.OPTIONAL,
+                    convert=utilities.MemberConverter(server_only=False)),
                 Arg('character name', argtype=ArgTypes.MERGED_OPTIONAL,
                     doc='Displays the specific character.'),
                 doc='Displays a list of character entries of the given user.',
-                function=character_display)],
+                confidence_threshold=3, function=character_display)],
         description='Character database.', category='user data')]
 
 
@@ -176,7 +178,7 @@ async def _create_session(bot, owner, editing=None):
 
     # Send the owner the link
     embed = discord.Embed(
-        title='Click here to access the template creator',
+        title='Click here to access the character creator',
         url='https://jkchen2.github.io/character-template/#{}'.format(session_code),
         description='Your session code is:\n`{}`'.format(session_code))
     await owner.send(embed=embed)
@@ -481,7 +483,7 @@ async def character_display(bot, context):
         embed=embed,
         message_type=MessageTypes.INTERACTIVE,
         extra_function=_character_browser,
-        extra={'buttons': ['⏮', '⬅', '➡', '⏭']},
+        extra={'buttons': ['⏮', '⬅', '➡', '⏭'], 'userlock': False},
         state_data=state_data)
 
 
