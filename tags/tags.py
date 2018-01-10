@@ -17,7 +17,7 @@ from jshbot.exceptions import BotException, ConfiguredBotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.2.0'
+__version__ = '0.2.1'
 uses_configuration = True
 CBException = ConfiguredBotException('Tags')
 
@@ -1126,12 +1126,11 @@ async def _add_download_link(bot, response):
 async def _tag_list_browser(bot, context, response, result, timed_out):
     if timed_out:  # TODO: Add timed out notification
         return
-
     if not result:
         asyncio.ensure_future(_add_download_link(bot, response))
         return
-    else:
-        selection = ['⏮', '⬅', '➡', '⏭'].index(result[0].emoji)
+
+    selection = ['⏮', '⬅', '➡', '⏭'].index(result[0].emoji)
     guild_tag_data = response.guild_tags[response.current_guild]
     tag_page_listing = guild_tag_data['listing']
     guild_name_list = list(response.guild_tags)
@@ -1179,3 +1178,8 @@ async def bot_on_ready_boot(bot):
         'speak': "Allows the usage of sound tags."
     }
     utilities.add_bot_permissions(bot, __name__, **permissions)
+
+    # TODO: Properly fix this IDNAError issue. In the meantime, a workaround:
+    # Forgive me, Father, for I have sinned
+    import idna
+    idna.core.check_hyphen_ok = lambda _: True
