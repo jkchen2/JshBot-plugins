@@ -21,7 +21,7 @@ from jshbot.exceptions import ConfiguredBotException, BotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.3.0'
+__version__ = '0.3.1'
 CBException = ConfiguredBotException('Music playlist')
 uses_configuration = True
 
@@ -705,17 +705,15 @@ class MusicPlayer():
             logger.debug("Not found in cache. Downloading...")
 
             try:
-                #sound_file = await data.add_to_cache(self.bot, track.downloadurl, name=track.url)
                 options = {'format': 'bestaudio/best', 'noplaylist': True}
                 downloader = YoutubeDL(options)
                 sound_file = await data.add_to_cache_ydl(self.bot, downloader, track.url)
             except Exception as e:  # Attempt to redownload from base url
                 logger.debug("Failed to download the track. Failsafe skipping...", e)
                 self.bot.extra = e
-                self.notification = "Failed to download {}. Failsafe skipping...".format()
-                # asyncio.ensure_future(self.update_interface())
+                self.notification = "Failed to download {}. Failsafe skipping...".format(
+                    track.title)
                 self.state = States.PAUSED
-                # asyncio.ensure_future(self.play(track_index=0))
                 self._skip_track()
                 return
 
