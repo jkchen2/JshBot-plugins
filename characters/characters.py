@@ -441,7 +441,7 @@ def _user_character_search(bot, owner, character_search):
         else:
             raise CBException(
                 "{} has no character named \"{}\".".format(
-                    owner.mention, context.arguments[0]))
+                    owner.mention, character_search))
     else:
         character_index = 0
 
