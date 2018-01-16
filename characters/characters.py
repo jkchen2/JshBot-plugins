@@ -106,7 +106,7 @@ def get_templates(bot):
     }
 
 @plugins.on_load
-def setup_global_tag_table(bot):
+def setup_characters_table(bot):
     data.db_create_table(bot, 'characters', template='characters_template')
 
 
@@ -271,7 +271,7 @@ async def _process_data(bot, author, url, pass_error=False):
         if not isinstance(embed_color, (int, type(None))):
             raise CBException("Invalid embed color type. [int]")
         if isinstance(embed_color, int) and not 0x0 <= embed_color <= 0xffffff:
-            raise CBException("Invalid embed color range. [0x0-0xffffff")
+            raise CBException("Invalid embed color range. [0x0-0xffffff]")
 
         if total_characters > 3000:
             raise CBException("Total characters exceeded 3000.")
