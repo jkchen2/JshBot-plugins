@@ -12,7 +12,7 @@ from jshbot.exceptions import ConfiguredBotException, BotException, ErrorTypes
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.2.0'
+__version__ = '0.2.1'
 CBException = ConfiguredBotException('Character creator')
 uses_configuration = True
 
@@ -607,12 +607,15 @@ def _user_character_search(bot, command_author, owner=None, character_search=Non
 async def character_search(bot, context):
     """Searches for characters with the given list of tags."""
     tags = [_clean_text_wrapper(it) for it in context.arguments]
-    cursor = data.db_select(bot, from_arg='characters', where_arg='tags @> %s', input_args=[tags])
+    cursor = data.db_select(
+        bot, from_arg='characters', where_arg='tags @> %s',
+        input_args=[tags], additional='ORDER BY clean_name ASC')
     character_list = cursor.fetchall() if cursor else []
     if not character_list:
         raise CBException("No characters found matching those tags.")
     embed = discord.Embed(
-        title=':book: Character search', description='Matching: #{}'.format(' #'.join(tags)))
+        title=':book: Character search', description='{} character{} matching: #{}'.format(
+            len(character_list), '' if len(character_list) == 1 else 's', ' #'.join(tags)))
     state_data = [0, character_list]
     return Response(
         embed=_build_browser_menu(bot, embed, *state_data),
@@ -689,10 +692,12 @@ async def character_browse(bot, context):
             else:
                 break
         page_index = int(closest_index / 10)  # 10 entries per page
+    embed = discord.Embed(
+        title=':book: Character browser', description='{} total character{}'.format(
+            len(character_list), '' if len(character_list) == 1 else 's'))
     state_data = [page_index, character_list]
     return Response(
-        embed=_build_browser_menu(
-            bot, discord.Embed(title=':book: Character browser'), *state_data),
+        embed=_build_browser_menu(bot, embed, *state_data),
         message_type=MessageTypes.INTERACTIVE,
         extra_function=_browser_menu,
         extra={'buttons': ['⬅', '➡'], 'userlock': False},
