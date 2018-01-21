@@ -12,22 +12,22 @@ from jshbot.exceptions import ConfiguredBotException, BotException, ErrorTypes
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.1.0'
+__version__ = '0.2.0'
 CBException = ConfiguredBotException('Character creator')
 uses_configuration = True
 
-DATA_VERSION = 1
+DATA_VERSION = 2
 data_channel = None
 data_channel_webhook_ids = []
 COMMON_ATTRIBUTES = ['Species', 'Height', 'Age', 'Gender', 'Sexuality']
 CHARACTER_TYPES = {
-    'fursona': 'A fursona',
-    'oc': 'An OC',
+    'fursona': ['A fursona', 'Fursona'],
+    'oc': ['An OC', 'OC'],
 }
 
 
 class Character():
-    def __init__(self, owner, json_data):
+    def __init__(self, owner, json_data, tags):
         self.owner = owner
         self.data = json_data
         self.name = json_data['name']
@@ -35,6 +35,7 @@ class Character():
         self.attributes = json_data['attributes']
         self.embed_color = json_data['embed_color']
         self.created = json_data['created']
+        self.tags = tags
 
 
 class CharacterConverter():
@@ -47,8 +48,8 @@ class CharacterConverter():
             input_args=(clean_name, message.author.id))
         match = cursor.fetchone()
         if not match:
-            raise CBException("A character by that name was not found under your account.")
-        return Character(message.author, match.data)
+            raise CBException("You don't have a character by that name.")
+        return Character(message.author, match.data, match.tags)
 
 
 @plugins.command_spawner
@@ -59,7 +60,7 @@ def get_commands(bot):
                 Opt('create'),
                 Attachment(
                     'character file', optional=True,
-                    doc='If you have a saved character file saved from the entry creator, '
+                    doc='If you have a character file saved from the entry creator, '
                         'you can use it directly here.'),
                 doc='Creates a character entry under your name.',
                 function=character_create),
@@ -80,16 +81,26 @@ def get_commands(bot):
                 doc='Lists the characters of the given user.',
                 function=character_list),
             SubCommand(
+                Opt('search'),
+                Arg('tag', argtype=ArgTypes.SPLIT, additional='...'),
+                doc='Searches for characters with the given tag(s).',
+                function=character_search),
+            SubCommand(
+                Opt('browse'),
+                Arg('letter', argtype=ArgTypes.MERGED_OPTIONAL),
+                doc='Browses all characters.',
+                function=character_browse),
+            SubCommand(
                 Opt('forceremove'),
                 Arg('user', convert=utilities.MemberConverter()),
                 Arg('character name', argtype=ArgTypes.MERGED),
                 doc='Forcibly removes the given character.',
                 elevated_level=1, function=character_forceremove),
             SubCommand(
-                Arg('user', argtype=ArgTypes.OPTIONAL,
-                    convert=utilities.MemberConverter(server_only=False)),
-                Arg('character name', argtype=ArgTypes.MERGED_OPTIONAL,
-                    doc='Displays the specific character.'),
+                Opt('user', attached='owner name', optional=True,
+                    convert=utilities.MemberConverter(server_only=False),
+                    doc='Searches for characters this user has made.'),
+                Arg('character name', argtype=ArgTypes.MERGED_OPTIONAL),
                 doc='Displays a list of character entries of the given user.',
                 confidence_threshold=3, function=character_display)],
         description='Character database.', category='user data')]
@@ -102,12 +113,56 @@ def get_templates(bot):
             "owner_id           bigint,"
             "name               text,"
             "clean_name         text,"
-            "data               json")
+            "data               json,"
+            "tags               text[],"
+            "modified           timestamp")
     }
 
 @plugins.on_load
 def setup_characters_table(bot):
+    """Creates the characters table and updates outdated entries."""
     data.db_create_table(bot, 'characters', template='characters_template')
+    cursor = data.db_execute(
+        bot, 'SELECT column_name FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = %s',
+        input_args=['characters'])
+    columns = [it[0] for it in cursor.fetchall()]
+    if 'tags' not in columns:
+        data.db_execute(bot, 'ALTER TABLE characters ADD COLUMN tags text[]')
+    if 'modified' not in columns:
+        data.db_execute(bot, 'ALTER TABLE characters ADD COLUMN modified timestamp')
+
+    name_index = 'IX_character_order'
+    if not data.db_exists(bot, name_index):
+        data.db_execute(bot, 'CREATE INDEX {} ON characters (clean_name ASC)'.format(name_index))
+
+    # Select all entries and convert
+    cursor = data.db_select(bot, from_arg='characters')
+    for entry in cursor.fetchall():
+        if entry.data['version'] == 1:  # NOTE: Change per version bump
+            tags = [entry.clean_name]
+            dt = datetime.datetime.utcfromtimestamp(entry.data['created'])
+            new_data = entry.data
+            new_data['attribute_order'] = list(new_data['attributes'].keys())
+            new_data['images'] = [[it, '', ''] for it in new_data['images']]
+            new_data['tags'] = tags
+            new_data['version'] = DATA_VERSION
+            data.db_update(
+                bot, 'characters', set_arg='data=%s, tags=%s, modified=%s',
+                where_arg='clean_name=%s AND owner_id=%s',
+                input_args=(Json(new_data), tags, dt, entry.clean_name, entry.owner_id))
+
+
+def _clean_text_wrapper(text, lowercase=True):
+    """Wraps the text cleaner for ASCII only alphanum with hyphens and underscores."""
+    def _custom(x):
+        c = ord(x)
+        if (48 <= c <= 57 or
+            65 <= c <= 90 or
+            97 <= c <= 122 or
+            c in (95, 45)):
+            return x
+        return ''
+    return utilities.clean_text(text, custom=_custom, lowercase=lowercase)
 
 
 async def _session_timeout_notify(bot, scheduled_time, payload, search, destination, late):
@@ -132,20 +187,24 @@ def _valid_url(url):
     test = urlparse(url)
     if not (test.scheme and test.netloc and '.' in test.netloc):
         return False
+
+    # Discord only accepts http or https
     if test.scheme not in ('http', 'https'):
         return False
+
+    # Test for valid netloc
     netloc_split = test.netloc.split('.')
     if (len(netloc_split) < 2):
-        return False
+        return False  # http://foo
     tld = test.netloc.split('.')[-1]
     if not (len(tld) >= 2 and _valid_string(tld, main=False)):
-        return False
+        return False  # http://foo.123
     for segment in netloc_split[:-1]:
         if not _valid_string(segment):
-            return False
-    for c in [ord(it) for it in url]:
-        if not 33 <= c <= 126:
-            return False
+            return False  # http://foo..bar or http://fo*o.bar
+    for c in url:
+        if not 33 <= ord(c) <= 126:
+            return False  # non-ASCII only URLs
     return True
 
 
@@ -164,7 +223,7 @@ async def _create_session(bot, owner, editing=None):
         "editing": editing
     }))
     url = await utilities.upload_to_discord(bot, create_data, filename='data', close=True)
-    url_segments = [it[::-1] for it in url[::-1].split('/')[2:0:-1]]
+    url_segments = [it[::-1] for it in url[::-1].split('/')[2:0:-1]]  # sorry
     session_code = '{}:{}'.format(*url_segments)
 
     # Track webhook usage
@@ -193,14 +252,14 @@ async def _create_session(bot, owner, editing=None):
 
 
 async def _process_data(bot, author, url, pass_error=False):
+    """Checks the given data and edits/adds an entry to the database."""
+    error_code = 1
     raw_data = await utilities.download_url(bot, url, use_fp=True)
     reader = codecs.getreader('utf-8')  # SO: 6862770
     try:
         parsed = json.load(reader(raw_data))
     except Exception as e:
         raise CBException("Failed to load the raw data.", e=e)
-
-    # Data version checks would go here
 
     # Check that values are within proper ranges
     try:
@@ -212,29 +271,40 @@ async def _process_data(bot, author, url, pass_error=False):
             raise CBException("Missing name.")
         if 'attributes' not in parsed:
             raise CBException("Missing attributes.")
+        if 'attribute_order' not in parsed:
+            raise CBException("Missing attribute order.")
         if 'thumbnail' not in parsed:
             raise CBException("Missing thumbnail.")
         if 'images' not in parsed:
             raise CBException("Missing images.")
         if 'embed_color' not in parsed:
             raise CBException("Missing embed color.")
+        if 'tags' not in parsed:
+            raise CBException("Missing tags.")
 
-        error_code = 1
+        # Check version
         total_characters = 0
         version = parsed['version']
         if not isinstance(version, int):
             raise CBException("Invalid version type. [int]")
-        if version != 1:  # NOTE: Change for newer versions
-            raise CBException("Invalid version number.")
+        if version != DATA_VERSION:
+            error_code = 4
+            raise CBException(
+                "Invalid or outdated data format. Please use the character creator site.")
+
+        # Check type and name
         character_type = parsed['type']
         if character_type not in CHARACTER_TYPES:
             raise CBException("Invalid character type.")
         name = parsed['name']
+        clean_name = _clean_text_wrapper(name)
         if not isinstance(name, str):
             raise CBException("Invalid name type. [string]")
         if not 1 <= len(name) <= 100:
             raise CBException("Invalid name length. [1-100]")
         total_characters += len(name)
+
+        # Check attributes
         attributes = parsed['attributes']
         if not isinstance(attributes, dict):
             raise CBException("Invalid attributes type. [dictionary]")
@@ -250,28 +320,81 @@ async def _process_data(bot, author, url, pass_error=False):
             elif not 1 <= len(value) <= 1000:
                 raise CBException("Invalid attribute value length. [1-1000]")
             total_characters += len(key) + len(value)
+
+        # Check thumbnail
         thumbnail = parsed['thumbnail']
         if not isinstance(thumbnail, (str, type(None))):
             raise CBException("Invalid thumbnail type. [string]")
         if isinstance(thumbnail, str) and not _valid_url(thumbnail):
             error_code = 2
             raise CBException("Invalid thumbnail URL.")
+
+        # Check images
         images = parsed['images']
         if not isinstance(images, list):
             raise CBException("Invalid images type. [list]")
+        if not 0 <= len(images) <= 10:
+            raise CBException("Invalid number of images. [0-10]")
         for image in images:
-            if not isinstance(image, str):
-                raise CBException("Invalid image type. [string]")
-            if not 1 <= len(image) <= 500:
-                raise CBException("Invalid image URL length. [1-500]")
-            if not _valid_url(image):
+            if not isinstance(image, list):
+                raise CBException("Invalid image type. [list]")
+            if len(image) != 3:
+                raise CBException("Invalid image metadata length. [3]")
+            for meta in image:
+                if not isinstance(meta, str):
+                    raise CBException("Invalid image metadata type. [string]")
+            if not 1 <= len(image[0]) <= 500:  # Direct image URL
+                raise CBException("Invalid direct image URL length. [1-500]")
+            if not _valid_url(image[0]):
                 error_code = 3
-                raise CBException("Invalid image URL.")
+                raise CBException("Invalid direct image URL.")
+            if not 0 <= len(image[1]) <= 500:  # Source URL
+                raise CBException("Invalid source URL length. [0-500]")
+            if not 0 <= len(image[2]) <= 100:  # Caption
+                raise CBException("Invalid image caption length. [0-100]")
+
+        # Check embed color
         embed_color = parsed['embed_color']
         if not isinstance(embed_color, (int, type(None))):
             raise CBException("Invalid embed color type. [int]")
         if isinstance(embed_color, int) and not 0x0 <= embed_color <= 0xffffff:
             raise CBException("Invalid embed color range. [0x0-0xffffff]")
+
+        # Version 2 stuff
+        attribute_order = parsed['attribute_order']
+        if not isinstance(attribute_order, list):
+            raise CBException("Invalid attribute order type. [list]")
+        tags = parsed['tags']
+        if not isinstance(tags, list):
+            raise CBException("Invalid tags type. [list]")
+
+        # Check attribute_order
+        order_set = set(attribute_order)
+        attribute_set = set(attributes)
+        if len(attribute_order) != len(order_set):
+            raise CBException("Duplicate attribute order entry.")
+        if order_set != attribute_set:
+            raise CBException("Attribute order does not match attribute set.")
+
+        # Check tags
+        tags = parsed['tags']
+        tags_raw = parsed['tags_raw']
+        if not 0 <= len('#'.join(tags)) <= 260:  # +60 for name and type
+            raise CBException("Invalid tags length. [0-200]")
+        if clean_name not in tags:
+            raise CBException("Character name not in tags.")
+        for character_type in CHARACTER_TYPES:
+            if character_type in tags:
+                break
+        else:
+            raise CBException("Character type not in tags.")
+        if len(set(tags)) != len(tags):
+            raise CBException("Duplicate tags exist.")
+        for tag in tags:
+            test = _clean_text_wrapper(tag, lowercase=False)
+            if test != tag:
+                raise CBException("Invalid tag.")
+            total_characters += len(tag)
 
         if total_characters > 3000:
             raise CBException("Total characters exceeded 3000.")
@@ -283,7 +406,9 @@ async def _process_data(bot, author, url, pass_error=False):
             await author.send("The data checks failed. Error:\n{}".format(e.error_details))
             return error_code
 
-    clean_name = utilities.clean_text(name)
+    created_time = int(time.time())
+    dt = datetime.datetime.utcfromtimestamp(created_time)
+
     json_data = Json({
         'type': character_type,
         'version': DATA_VERSION,
@@ -291,10 +416,13 @@ async def _process_data(bot, author, url, pass_error=False):
         'clean_name': clean_name,
         'owner_id': author.id,
         'attributes': attributes,
+        'attribute_order': attribute_order,
         'thumbnail': thumbnail,
         'images': images,
         'embed_color': embed_color,
-        'created': int(time.time())
+        'tags': tags,
+        'tags_raw': tags_raw,
+        'created': created_time
     })
 
     # Check for edit or entry creation
@@ -304,11 +432,13 @@ async def _process_data(bot, author, url, pass_error=False):
     existing_names = [it[0] for it in cursor.fetchall()] if cursor else []
     if clean_name in existing_names:  # Edit
         data.db_update(
-            bot, 'characters', set_arg='data=%s', where_arg='owner_id=%s AND clean_name=%s',
-            input_args=(json_data, author.id, clean_name))
+            bot, 'characters', set_arg='name=%s, data=%s, tags=%s, modified=%s',
+            where_arg='owner_id=%s AND clean_name=%s',
+            input_args=(name, json_data, tags, dt, author.id, clean_name))
         content = "Edited the entry for {}.".format(name)
     else:  # Create
-        data.db_insert(bot, 'characters', input_args=[author.id, name, clean_name, json_data])
+        data.db_insert(
+            bot, 'characters', input_args=[author.id, name, clean_name, json_data, tags, dt])
         content = "Created a new entry for {}.".format(name)
 
     if pass_error:
@@ -332,7 +462,6 @@ async def _cancel_menu(bot, context, response, result, timed_out):
         if not webhook:
             raise CBException("The session has already been cancelled.")
         await _clear_webhook(bot, webhook.id)
-        utilities.remove_schedule_entries(bot, __name__, search=str(webhook.id))
         await response.message.edit(content=(
             "The session has been cancelled. Run the command "
             "again to create a new session."))
@@ -372,7 +501,7 @@ async def character_create(bot, context):
     else:
         await _create_session(bot, context.author)
         if not context.direct:
-            return Response(content="A link to the creation site has been sent to you via DMs.")
+            await context.message.add_reaction('📨')
 
 
 async def character_remove(bot, context):
@@ -400,7 +529,7 @@ async def character_edit(bot, context):
 
     await _create_session(bot, context.author, editing=context.arguments[0].data)
     if not context.direct:
-        return Response(content="A link to the creation site has been sent to you via DMs.")
+        await context.message.add_reaction('📨')
 
 
 async def character_list(bot, context):
@@ -427,25 +556,147 @@ async def character_list(bot, context):
     return Response(embed=embed)
 
 
-def _user_character_search(bot, owner, character_search):
+def _user_character_search(bot, command_author, owner=None, character_search=None):
+    """Finds characters under the given owner, search, or both."""
+    # Setup select arguments
+    where_args, input_args = [], []
+    if not (owner or character_search):
+        where_args.append('owner_id=%s')
+        input_args.append(command_author.id)
+    if owner:
+        where_args.append('owner_id=%s')
+        input_args.append(owner.id)
+    if character_search:
+        where_args.append('clean_name=%s')
+        input_args.append(character_search)
+
+    # Get character list
     cursor = data.db_select(
-        bot, from_arg='characters', where_arg='owner_id=%s', input_args=[owner.id])
+        bot, from_arg='characters', where_arg=' AND '.join(where_args), input_args=input_args)
     characters = cursor.fetchall() if cursor else []
     if not characters:
-        raise CBException("{} has no characters.".format(owner.mention))
-
-    if character_search:
-        for character_index, character in enumerate(characters):
-            if character.clean_name == character_search:
-                break
+        if owner:
+            cursor = data.db_select(
+                bot, from_arg='characters', where_arg='owner_id=%s', input_args=[owner.id])
+            owner_characters = cursor.fetchall() if cursor else []
+            if owner_characters:
+                raise CBException(
+                    "{} has no character named \"{}\".".format(
+                        owner.mention, character_search))
+            else:
+                raise CBException("{} has no character entries.".format(owner.mention))
+        elif character_search:
+            raise CBException("No character named \"{}\" was found.".format(character_search))
         else:
             raise CBException(
-                "{} has no character named \"{}\".".format(
-                    owner.mention, character_search))
-    else:
-        character_index = 0
+                "You have no character entries!\n"
+                "You can create one with `{}character create`".format(
+                    utilities.get_invoker(bot, getattr(command_author, 'guild', None))))
 
-    return [character_index, 0, characters, owner]
+    # Check if character list contains characters made by the command author
+    character_index = 0
+    if not owner:
+        for index, character in enumerate(characters):
+            if character.owner_id == command_author.id:
+                character_index = index
+                break
+
+    return [character_index, characters]
+
+
+async def character_search(bot, context):
+    """Searches for characters with the given list of tags."""
+    tags = [_clean_text_wrapper(it) for it in context.arguments]
+    cursor = data.db_select(bot, from_arg='characters', where_arg='tags @> %s', input_args=[tags])
+    character_list = cursor.fetchall() if cursor else []
+    if not character_list:
+        raise CBException("No characters found matching those tags.")
+    embed = discord.Embed(
+        title=':book: Character search', description='Matching: #{}'.format(' #'.join(tags)))
+    state_data = [0, character_list]
+    return Response(
+        embed=_build_browser_menu(bot, embed, *state_data),
+        message_type=MessageTypes.INTERACTIVE,
+        extra_function=_browser_menu,
+        extra={'buttons': ['⬅', '➡'], 'userlock': False},
+        state_data=state_data)
+
+
+def _character_one_liner(bot, character):
+    """Formats a character entry as a single line for browsing."""
+    owner = data.get_member(bot, character.owner_id, safe=True, attribute='mention')
+    character_type = CHARACTER_TYPES[character.data['type']][1]
+    return '**{}** [{}] by {}'.format(
+        character.name, character_type, owner if owner else 'Unknown')
+
+
+def _build_browser_menu(bot, embed, page_index, character_list):
+    """Builds a browser page given the index and character list."""
+    embed.clear_fields()
+
+    # At most, 10 entries per page
+    characters = character_list[10*page_index:10*page_index + 10]
+    search_letter = characters[0].clean_name[0]
+    search_letter_names = []
+    for character in characters:
+        current_letter = character.clean_name[0]
+
+        # New letter found. Add last group of characters
+        if current_letter != search_letter:
+            embed.add_field(
+                name=search_letter.upper(), value='\n'.join(search_letter_names), inline=False)
+            search_letter = current_letter
+            search_letter_names = []
+
+        # Add character to the search letter names list
+        search_letter_names.append(_character_one_liner(bot, character))
+
+    # Add last group of characters
+    embed.add_field(
+        name=search_letter.upper(), value='\n'.join(search_letter_names), inline=False)
+
+    total_pages = int((len(character_list) - 1) / 10 + 1)
+    embed.add_field(
+        name='\u200b', value='Page [ {} / {} ]'.format(page_index + 1, total_pages), inline=False)
+    return embed
+
+
+async def _browser_menu(bot, cotext, response, result, timed_out):
+    """Browser for searches and the browse command."""
+    if timed_out or not result:
+        return
+    selection = ['⬅', '➡'].index(result[0].emoji)
+    total = int((len(response.state_data[1]) - 1) / 10 + 1)
+    delta = 1 if selection == 1 else -1
+    response.state_data[0] = (response.state_data[0] + delta) % total
+    _build_browser_menu(bot, response.embed, *response.state_data)
+    await response.message.edit(embed=response.embed)
+
+
+async def character_browse(bot, context):
+    """Browses a list of all characters."""
+    character_list = data.db_select(
+        bot, from_arg='characters', additional='ORDER BY clean_name ASC').fetchall()
+    if not character_list:
+        raise CBException("There are no characters in the database.")
+    page_index = 0
+    if context.arguments[0]:
+        search = context.arguments[0]
+        closest_index = 0
+        for index, character in enumerate(character_list):
+            if search <= character.clean_name:
+                closest_index = index
+            else:
+                break
+        page_index = int(closest_index / 10)  # 10 entries per page
+    state_data = [page_index, character_list]
+    return Response(
+        embed=_build_browser_menu(
+            bot, discord.Embed(title=':book: Character browser'), *state_data),
+        message_type=MessageTypes.INTERACTIVE,
+        extra_function=_browser_menu,
+        extra={'buttons': ['⬅', '➡'], 'userlock': False},
+        state_data=state_data)
 
 
 async def character_forceremove(bot, context):
@@ -455,8 +706,8 @@ async def character_forceremove(bot, context):
         if not data.is_admin(bot, context.guild, context.author.id):
             raise CBException("Cannot remove characters of other bot moderators.")
     character_search = utilities.clean_text(context.arguments[1])
-    state_data = _user_character_search(bot, owner, character_search)
-    character = state_data[2][state_data[0]]
+    search_result = _user_character_search(bot, context.author, owner, character_search)
+    character = search_result[1][search_result[0]]
 
     data.db_delete(
         bot, 'characters', where_arg='clean_name=%s AND owner_id=%s',
@@ -467,37 +718,37 @@ async def character_forceremove(bot, context):
 
 async def character_display(bot, context):
     """Shows the character entry menu."""
-
-    character_search = None
+    owner = context.options.get('user')
     if context.arguments[0]:
-        owner = context.arguments[0]
-        if context.arguments[1]:
-            character_search = utilities.clean_text(context.arguments[1])
+        character_search = utilities.clean_text(context.arguments[0])
     else:
-        owner = context.author
-
-    state_data = _user_character_search(bot, owner, character_search)
-    embed = discord.Embed()
-    _build_profile(embed, *state_data)
+        character_search = None
+    state_data = _user_character_search(bot, context.author, owner, character_search) + [0]
     return Response(
-        embed=embed,
+        embed=_build_profile(bot, discord.Embed(), *state_data),
         message_type=MessageTypes.INTERACTIVE,
-        extra_function=_character_browser,
+        extra_function=_character_entry_browser,
         extra={'buttons': ['⏮', '⬅', '➡', '⏭'], 'userlock': False},
         state_data=state_data)
 
 
-def _build_profile(embed, character_index, image_index, characters, owner):
+def _build_profile(bot, embed, character_index, characters, image_index):
     """Edits the given embed for the given character."""
     character = characters[character_index]
+    owner = data.get_member(bot, character.owner_id, safe=True, attribute='mention')
+    owner = owner if owner else 'Unknown'
+    version = character.data['version']
     embed.clear_fields()
     if character.data['embed_color'] is not None:
         embed.color = discord.Color(character.data['embed_color'])
     else:
         embed.color = discord.Embed.Empty
+
+    # Owner description
+    owner_text = '{} by {}'.format(CHARACTER_TYPES[character.data['type']][0], owner)
     embed.add_field(
-        name=character.name, inline=False, value='Character [{}/{}]'.format(
-            character_index + 1, len(characters)))
+        name=character.name, inline=False, value='Character [ {} / {} ] | {}'.format(
+            character_index + 1, len(characters), owner_text))
     attributes = character.data['attributes']
     common_attributes = []
     for key in COMMON_ATTRIBUTES:
@@ -505,46 +756,54 @@ def _build_profile(embed, character_index, image_index, characters, owner):
             common_attributes.append('{}: {}'.format(key, attributes[key]))
     if common_attributes:
         embed.add_field(name='Common attributes', value='\n'.join(common_attributes))
-    for key in [it for it in attributes if it not in COMMON_ATTRIBUTES]:
+
+    # Version 2: Use attribute order
+    attribute_order = character.data['attribute_order']
+    for key in [it for it in attribute_order if it not in COMMON_ATTRIBUTES]:
         embed.add_field(name=key, value=attributes[key])
+
+    # Image/caption and thumbnail
     if character.data['images']:
-        image = character.data['images'][image_index]
-        image_text = '[Image [{}/{}]]({})\n'.format(
-            image_index + 1, len(character.data['images']), image)
+        image, source, caption = character.data['images'][image_index]
+        image_text = '[Image [ {} / {} ]]({}){}'.format(
+            image_index + 1, len(character.data['images']), source or image,
+            ('\n' + caption) if caption else '')
+        embed.add_field(name='\u200b', value=image_text, inline=False)
+        embed.set_image(url=image)
     else:
-        image = ''
-        image_text = ''
-    owner_text = '{} by {}'.format(CHARACTER_TYPES[character.data['type']], owner.mention)
-    embed.add_field(name='\u200b', value='{}{}'.format(image_text, owner_text), inline=False)
-    embed.set_image(url=image)
+        embed.set_image(url='')
     embed.set_thumbnail(url=character.data['thumbnail'] if character.data['thumbnail'] else '')
-    embed.set_footer(text='Last updated')
+
+    # Version 2: Show tags
+    embed.set_footer(text='Tags: #{} | Last updated'.format(' #'.join(character.tags)))
+
     embed.timestamp = datetime.datetime.utcfromtimestamp(character.data['created'])
     return embed
 
 
-async def _character_browser(bot, context, response, result, timed_out):
+async def _character_entry_browser(bot, context, response, result, timed_out):
     if timed_out or not result:
         return
     selection = ['⏮', '⬅', '➡', '⏭'].index(result[0].emoji)
     if selection in (1, 2):  # Image selection
-        total = len(response.state_data[2][response.state_data[0]].data['images'])
+        total = len(response.state_data[1][response.state_data[0]].data['images'])
         if total:
             delta = 1 if selection == 2 else -1
-            response.state_data[1] = (response.state_data[1] + delta) % total
+            response.state_data[2] = (response.state_data[2] + delta) % total
     elif selection in (0, 3):  # Character selection
-        total = len(response.state_data[2])
+        total = len(response.state_data[1])
         if total:
             delta = 1 if selection == 3 else -1
             response.state_data[0] = (response.state_data[0] + delta) % total
-            response.state_data[1] = 0
-    _build_profile(response.embed, *response.state_data)
+            response.state_data[2] = 0
+    _build_profile(bot, response.embed, *response.state_data)
     await response.message.edit(embed=response.embed)
 
 
 async def _clear_webhook(bot, webhook_id):
     """Clears the webhook from volatile data."""
     logger.debug("Removing webhook: %s", webhook_id)
+    utilities.remove_schedule_entries(bot, __name__, search=str(webhook_id))
     owner = data.remove(bot, __name__, 'owner', user_id=webhook_id, safe=True, volatile=True)
     data.remove(bot, __name__, 'stage', user_id=webhook_id, safe=True, volatile=True)
     if not owner:
