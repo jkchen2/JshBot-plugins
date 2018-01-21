@@ -139,9 +139,9 @@ def setup_characters_table(bot):
     cursor = data.db_select(bot, from_arg='characters')
     for entry in cursor.fetchall():
         if entry.data['version'] == 1:  # NOTE: Change per version bump
-            tags = [entry.clean_name]
             dt = datetime.datetime.utcfromtimestamp(entry.data['created'])
             new_data = entry.data
+            tags = [new_data['type'], entry.clean_name]
             new_data['attribute_order'] = list(new_data['attributes'].keys())
             new_data['images'] = [[it, '', ''] for it in new_data['images']]
             new_data['tags'] = tags
