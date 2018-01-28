@@ -307,10 +307,10 @@ async def _violation_notification(bot, message, awoo_tier, send_message=True):
         text = "{} {}".format(author.mention, random.choice(statements['silence']))
     elif awoo_tier == 3 and violation_data['violations'] <= 3:  # Legalization plea, but silent
         text = snark
-    else:
-        await message.add_reaction(random.choice(['🚩', '🛑', '❌', '⛔', '🚫']))
     if send_message and text:
         await channel.send(content=text)
+    else:
+        await message.add_reaction(random.choice(['🚩', '🛑', '❌', '⛔', '🚫']))
 
     # Stress
     violators, sent_tier = channel_violation_data['violators'], channel_violation_data['sent_tier']
