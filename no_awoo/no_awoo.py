@@ -10,7 +10,7 @@ from jshbot.exceptions import ConfiguredBotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 CBException = ConfiguredBotException('Awoo police')
 uses_configuration = True
 
@@ -176,7 +176,7 @@ async def awoo_reset(bot, context):
     return Response(content="User removed from the database.")
 
 
-def _awoo_check(bot, message, show_filtered=False):
+def _awoo_check(bot, message, show_filtered=''):
     """
     Checks for awoo violations.
 
@@ -186,7 +186,7 @@ def _awoo_check(bot, message, show_filtered=False):
     """
 
     # Initial content check
-    content = message.content.lower() if message.content else ''
+    content = show_filtered or (message.content.lower() if message.content else '')
     author, channel = message.author, message.channel
     if not content or author.bot or isinstance(channel, discord.abc.PrivateChannel):
         return
@@ -224,8 +224,8 @@ def _awoo_check(bot, message, show_filtered=False):
             'ฝ', 'ш', 'Щ', 'ฬ', 'ω']],
         ['o', [
             '<>', '{}', '[]', '()', '0', 'ø', '🇴', '🅾',
-            'ዐ', 'ѻ', 'о', 'Ф', 'ф', '๏', 'σ']],
-        ['', ['`', '[', ']', '(', ')']]
+            'ዐ', 'ѻ', 'о', 'Ф', 'ф', '๏', 'σ', '⭕']],
+        ['', ['`']]
     ]
     unicode_filters = ['Cf', 'Cn', 'Zs', 'Zl', 'Zp', 'Mn']
     filtered = ''.join(c for c in content if not unicodedata.category(c).startswith('Z'))
@@ -233,9 +233,8 @@ def _awoo_check(bot, message, show_filtered=False):
         for value in values:
             filtered = filtered.replace(value, key)
     filtered = unicodedata.normalize('NFKD', filtered)
-    filtered = ''.join(c for c in filtered if unicodedata.category(c) not in unicode_filters)
-    for value in substitutions[3][1]:
-        filtered = filtered.replace(value, '')
+    check = lambda c: unicodedata.category(c) not in unicode_filters and c.isalpha()
+    filtered = ''.join(c for c in filtered if check(c))
     if BASIC_MATCH.search(filtered.lower()):
         return 2
 
@@ -248,7 +247,7 @@ async def _violation_notification(bot, message, awoo_tier, send_message=True):
     """
     Logs the violation and (optionally) sends the user a notification.
     
-    Standard notification: once per violation, up to 2 times
+    Standard notification: once per violation, up to 1 time
     None: 3 violations
     Silence notification: 1 violation
 
@@ -302,12 +301,14 @@ async def _violation_notification(bot, message, awoo_tier, send_message=True):
     # Notify user
     logger.debug("Violations: %s", violation_data['violations'])
     text = ''
-    if violation_data['violations'] <= 2:
+    if violation_data['violations'] <= 1:
         text = "{}{} has been fined ${} for an awoo violation.".format(snark, author.mention, fine)
     elif violation_data['violations'] == 6:
         text = "{} {}".format(author.mention, random.choice(statements['silence']))
     elif awoo_tier == 3 and violation_data['violations'] <= 3:  # Legalization plea, but silent
         text = snark
+    else:
+        await message.add_reaction(random.choice(['🚩', '🛑', '❌', '⛔', '🚫']))
     if send_message and text:
         await channel.send(content=text)
 
