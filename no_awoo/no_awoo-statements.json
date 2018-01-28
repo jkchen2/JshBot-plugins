@@ -1,0 +1,53 @@
+{
+
+    "stress": [
+        [
+            "As if *one* penalty wasn't enough.",
+            "Why do you people *want* to be fined?",
+            "Is this fun? Do you enjoy this somehow?"
+        ],
+        [
+            "You folk need to seek awoo rehabilitation.",
+            "Stop, in the name of the law!",
+            "Look, I don't actually care if you keep going. I get a cut from all of this."
+        ],
+        [
+            "Alright, this... is now a little too extreme.",
+            "How has the spam filter not kicked in yet?",
+            "You people are insane."
+        ]
+    ],
+
+    "silence": [
+        "FYI I'm still keeping track.",
+        "Just because I'm not saying anything doesn't mean I'm not fining you.",
+        "Go ahead. Keep going. It's your money.",
+        "Don't think you're off the hook just because I'm quiet.",
+        "Still going? Whatever, it's your money.",
+        "Your money will be put towards a better cause.",
+        "You're not above the law."
+    ],
+
+    "bypass": [
+        "Oh, you think you're really clever don't you?",
+        "It's going to take more than that to fool me. Well, maybe not much more.",
+        "You're a tricky one. I admire your moxie.",
+        "Sorry bud, but I've seen it all. Well, most of it anyway.",
+        "Oldest trick in the book.",
+        "Think I can't see past your little tricks?",
+        "It was a good attempt. I almost didn't catch that. *Almost*.",
+        "Clever, but not clever enough!",
+        "I don't see that alternative very often. It's still a fine though.",
+        "I'll admit it was a good attempt, but the law is the law."
+    ],
+
+    "legalize": [
+        "Sorry, I'm just a grunt. Tell that to the higher-ups.",
+        "The law is the law. I'm just here to enforce it.",
+        "Hey, I'm not the guy that makes the rules, alright?",
+        "File a formal complaint. Debate isn't my job.",
+        "Sorry. The law is the law.",
+        "Yeah sure, contact your local representative and all that."
+    ]
+
+}
