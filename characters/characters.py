@@ -12,7 +12,7 @@ from jshbot.exceptions import ConfiguredBotException, BotException, ErrorTypes
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.2.1'
+__version__ = '0.2.2'
 CBException = ConfiguredBotException('Character creator')
 uses_configuration = True
 
@@ -42,7 +42,7 @@ class CharacterConverter():
     def __call__(self, bot, message, value, *a):
         if len(value) > 50:
             raise CBException("Names cannot be longer than 50 characters.")
-        clean_name = utilities.clean_text(value)
+        clean_name = _clean_text_wrapper(value)
         cursor = data.db_select(
             bot, from_arg='characters', where_arg='clean_name=%s AND owner_id=%s',
             input_args=(clean_name, message.author.id))
