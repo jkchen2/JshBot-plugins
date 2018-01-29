@@ -10,7 +10,7 @@ from jshbot.exceptions import ConfiguredBotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.1.2'
+__version__ = '0.1.3'
 CBException = ConfiguredBotException('Awoo police')
 uses_configuration = True
 
@@ -36,39 +36,31 @@ def get_commands(bot):
             SubCommand(
                 Opt('leaderboards'),
                 doc='See the list of worst offenders.',
-                function=awoo_leaderboards)],
+                function=awoo_leaderboards),
+            SubCommand(
+                Opt('toggle'),
+                Arg('channel', argtype=ArgTypes.SPLIT_OPTIONAL,
+                    convert=utilities.ChannelConverter(constraint=discord.TextChannel),
+                    doc='Toggles detection in this channel.'),
+                doc='Toggles awoo detection.',
+                function=awoo_toggle, elevated_level=1),
+            SubCommand(
+                Opt('whitelist'),
+                Arg('user', argtype=ArgTypes.MERGED_OPTIONAL,
+                    convert=utilities.MemberConverter()),
+                doc='Whitelist users from detection.',
+                function=awoo_whitelist, elevated_level=1),
+            SubCommand(
+                Opt('reset'),
+                Arg('user', argtype=ArgTypes.MERGED, convert=utilities.MemberConverter()),
+                function=awoo_reset)],
         shortcuts=[
             Shortcut(
                 'astats', 'stats {arguments}',
                 Arg('arguments', argtype=ArgTypes.MERGED_OPTIONAL)),
             Shortcut('aleaderboards', 'leaderboards')
         ],
-        description='Consult the criminal database.'),
-
-    Command(
-        'modawoo', subcommands=[
-            SubCommand(
-                Opt('toggle'),
-                Arg('channel', argtype=ArgTypes.MERGED_OPTIONAL,
-                    convert=utilities.ChannelConverter(constraint=discord.TextChannel),
-                    doc='Toggles detection in this channel.'),
-                doc='Toggles awoo detection.',
-                function=awoo_toggle),
-            SubCommand(
-                Opt('whitelist'),
-                Arg('user', argtype=ArgTypes.MERGED, convert=utilities.MemberConverter()),
-                doc='Whitelist certain users from detection.',
-                function=awoo_whitelist)
-        ],
-        description='Awoo mod tools.', elevated_level=1),
-    
-    Command(
-        'ownerawoo', subcommands=[
-            SubCommand(
-                Opt('reset'),
-                Arg('user', argtype=ArgTypes.MERGED, convert=utilities.MemberConverter()),
-                function=awoo_reset)],
-        description='Awoo bot owner tools.', elevated_level=3, hidden=True)]
+        description='Consult the criminal database.')]
 
 
 @plugins.db_template_spawner
@@ -136,16 +128,19 @@ async def awoo_toggle(bot, context):
 
     # Channel
     if context.arguments[0]:
-        channel = context.arguments[0]
-        if channel.id in guild_awoo_data.get('disabled_channels', []):
-            action = 'is now '
-            data.list_data_remove(
-                bot, __name__, 'disabled_channels', value=channel.id, guild_id=context.guild.id)
-        else:
-            action = 'is no longer'
-            data.list_data_append(
-                bot, __name__, 'disabled_channels', channel.id, guild_id=context.guild.id)
-        return Response(content='{} {} being monitored for awoos.'.format(channel.mention, action))
+        changes = []
+        for channel in context.arguments:
+            if channel.id in guild_awoo_data.get('disabled_channels', []):
+                action = 'is now '
+                data.list_data_remove(
+                    bot, __name__, 'disabled_channels',
+                    value=channel.id, guild_id=context.guild.id)
+            else:
+                action = 'is no longer'
+                data.list_data_append(
+                    bot, __name__, 'disabled_channels', channel.id, guild_id=context.guild.id)
+            changes.append('{} {} being monitored.'.format(channel.mention, action))
+        return Response(content='\n'.join(changes))
 
     # Guild
     else:
@@ -158,14 +153,26 @@ async def awoo_whitelist(bot, context):
     """(De)whitelists the given user."""
     user = context.arguments[0]
     whitelist = data.get(bot, __name__, 'whitelist', guild_id=context.guild.id, default=[])
-    if user.id in whitelist:
-        action = 'removed from'
-        data.list_data_remove(bot, __name__, 'whitelist', value=user.id, guild_id=context.guild.id)
-    else:
-        action = 'added to'
-        data.list_data_append(bot, __name__, 'whitelist', user.id, guild_id=context.guild.id)
-    return Response(content="User {} the whitelist.".format(action))
 
+    # (De)whitelist user
+    if user:
+        if user.id in whitelist:
+            action = 'removed from'
+            data.list_data_remove(bot, __name__, 'whitelist', value=user.id, guild_id=context.guild.id)
+        else:
+            action = 'added to'
+            data.list_data_append(bot, __name__, 'whitelist', user.id, guild_id=context.guild.id)
+        return Response(content="User {} the whitelist.".format(action))
+
+    # Show whitelisted users
+    else:
+        if not whitelist:
+            raise CBException("There are no whitelisted users.")
+        users = [
+            (data.get_member(bot, it, attribute='mention') or 'Unknown ({})'.format(it))
+            for it in whitelist]
+        return Response(
+            embed=discord.Embed(title="Whitelisted users", description=', '.join(users)))
 
 
 async def awoo_reset(bot, context):
@@ -219,7 +226,7 @@ def _awoo_check(bot, message, show_filtered=''):
     for key, values in substitutions:
         for value in values:
             filtered = filtered.replace(value, key)
-    _check = lambda c: c.isalnum() or c.isspace()
+    _check = lambda c: c.isalpha() or c.isspace()
     filtered = ''.join(c.lower() for c in unicodedata.normalize('NFKD', filtered) if _check(c))
     if ADVANCED_MATCH.search(filtered):
         return 2
@@ -242,7 +249,7 @@ async def _violation_notification(bot, message, awoo_tier, send_message=True):
     Stress indicates a number of users making a violation within a 60 second period.
     Tier 1: 3 members
     Tier 2: 5 members
-    Tier 3: 10 members
+    Tier 3: 8 members
     """
     
     author, channel = message.author, message.channel
@@ -302,7 +309,7 @@ async def _violation_notification(bot, message, awoo_tier, send_message=True):
     violators, sent_tier = channel_violation_data['violators'], channel_violation_data['sent_tier']
     if (len(violators) == 3 and sent_tier == 0 or
             len(violators) == 5 and sent_tier == 1 or
-            len(violators) == 10 and sent_tier == 2):
+            len(violators) == 8 and sent_tier == 2):
         if send_message:
             await message.channel.send(random.choice(statements['stress'][sent_tier]))
         channel_violation_data['sent_tier'] += 1
