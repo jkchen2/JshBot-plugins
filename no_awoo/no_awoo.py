@@ -10,14 +10,16 @@ from jshbot.exceptions import ConfiguredBotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.1.1'
+__version__ = '0.1.2'
 CBException = ConfiguredBotException('Awoo police')
 uses_configuration = True
 
 statements = None
+substitutions = None
 fine = None
-BASIC_MATCH = re.compile('a+w+oo+')
-PLEA_MATCH = re.compile('legali[zs]e *a+w+oo+')
+BASIC_MATCH = re.compile(r'a+w+oo+\b')
+ADVANCED_MATCH = re.compile(r'a+[a\s]*w+[w\s]*o\s*o+\b')
+PLEA_MATCH = re.compile(r'legali[zs]e *a+w+oo+')
 
 
 @plugins.command_spawner
@@ -91,7 +93,6 @@ def setup_awoo_table(bot):
 async def awoo(bot, context):
     if not _awoo_check(bot, context.message):  # User has been whitelisted. Force a violation
         await _violation_notification(bot, context.message, 1)
-    return
 
 
 async def awoo_stats(bot, context):
@@ -120,7 +121,7 @@ async def awoo_leaderboards(bot, context):
         stats[0].append('`{0}.` ${1.debt} | {1.violations}'.format(index + 1, entry))
         user = data.get_member(bot, entry.user_id, safe=True, attribute='mention')
         user = user or 'Unknown ({})'.format(entry.user_id)
-        stats[1].append('{}'.format(user))
+        stats[1].append('`\u200b`{}'.format(user))
 
     embed = discord.Embed(title=':scales: Awoo violation leaderboards')
     embed.add_field(name='Debt | Violations', value='\n'.join(stats[0]))
@@ -214,33 +215,18 @@ def _awoo_check(bot, message, show_filtered=''):
         return 1
 
     # Tier 2: Advanced check
-    # I'm sorry.
-    substitutions = [
-        ['a', [
-            '/-\\\\', '4', 'Ⱥ', '🇦', '🅰', 'ል', 'ɐ', 'ᴀ',
-            'ค', 'ﾑ', 'а', 'Д', 'ค', 'α']],
-        ['w', [
-            'vv', '\\\\/\\\\/', '🇼', '🆆', 'ሠ', 'ʍ', 'ᴡ',
-            'ฝ', 'ш', 'Щ', 'ฬ', 'ω']],
-        ['o', [
-            '<>', '{}', '[]', '()', '0', 'ø', '🇴', '🅾',
-            'ዐ', 'ѻ', 'о', 'Ф', 'ф', '๏', 'σ', '⭕']],
-        ['', ['`']]
-    ]
-    unicode_filters = ['Cf', 'Cn', 'Zs', 'Zl', 'Zp', 'Mn']
-    filtered = ''.join(c for c in content if not unicodedata.category(c).startswith('Z'))
+    filtered = content
     for key, values in substitutions:
         for value in values:
             filtered = filtered.replace(value, key)
-    filtered = unicodedata.normalize('NFKD', filtered)
-    check = lambda c: unicodedata.category(c) not in unicode_filters and c.isalpha()
-    filtered = ''.join(c for c in filtered if check(c))
-    if BASIC_MATCH.search(filtered.lower()):
+    _check = lambda c: c.isalnum() or c.isspace()
+    filtered = ''.join(c.lower() for c in unicodedata.normalize('NFKD', filtered) if _check(c))
+    if ADVANCED_MATCH.search(filtered):
         return 2
 
     # Debug
     if show_filtered:
-        return filtered.lower()
+        return filtered
 
 
 async def _violation_notification(bot, message, awoo_tier, send_message=True):
@@ -248,7 +234,7 @@ async def _violation_notification(bot, message, awoo_tier, send_message=True):
     Logs the violation and (optionally) sends the user a notification.
     
     Standard notification: once per violation, up to 1 time
-    None: 3 violations
+    None: 2 violations
     Silence notification: 1 violation
 
     Reset period for notifications is 1 minute.
@@ -303,7 +289,7 @@ async def _violation_notification(bot, message, awoo_tier, send_message=True):
     text = ''
     if violation_data['violations'] <= 1:
         text = "{}{} has been fined ${} for an awoo violation.".format(snark, author.mention, fine)
-    elif violation_data['violations'] == 6:
+    elif violation_data['violations'] == 4:
         text = "{} {}".format(author.mention, random.choice(statements['silence']))
     elif awoo_tier == 3 and violation_data['violations'] <= 3:  # Legalization plea, but silent
         text = snark
@@ -329,12 +315,15 @@ async def on_message(bot, message):
 
 
 async def on_message_edit(bot, message_before, message_after):
+    if _awoo_check(bot, message_before):  # Prevent a little edit abuse
+        return
     awoo_tier = _awoo_check(bot, message_after)
     if awoo_tier:
         await _violation_notification(bot, message_after, awoo_tier, send_message=False)
 
 
 async def bot_on_ready_boot(bot):
-    global statements, fine
+    global statements, substitutions, fine
     statements = configurations.get(bot, __name__, extra='statements', extension='json')
+    substitutions = configurations.get(bot, __name__, extra='substitutions', extension='json')
     fine = configurations.get(bot, __name__, 'fine')

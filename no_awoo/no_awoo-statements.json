@@ -4,12 +4,18 @@
         [
             "As if *one* penalty wasn't enough.",
             "Why do you people *want* to be fined?",
-            "Is this fun? Do you enjoy this somehow?"
+            "Is this fun? Do you enjoy this somehow?",
+            "Oh no, not you too!",
+            "Troublemakers...",
+            "Oh, come *on!*",
+            "If you're not careful, you'll start a howling."
         ],
         [
             "You folk need to seek awoo rehabilitation.",
             "Stop, in the name of the law!",
-            "Look, I don't actually care if you keep going. I get a cut from all of this."
+            "Look, I don't actually care if you keep going. I get a cut from all of this.",
+            "Okay, now you're doing this on purpose.",
+            "Let's hope this is in the spam channel."
         ],
         [
             "Alright, this... is now a little too extreme.",
@@ -25,20 +31,27 @@
         "Don't think you're off the hook just because I'm quiet.",
         "Still going? Whatever, it's your money.",
         "Your money will be put towards a better cause.",
-        "You're not above the law."
+        "You're not above the law.",
+        "Now you're just doing this on purpose, aren't you?",
+        "You're just trying to get on my nerves, aren't you?"
     ],
 
     "bypass": [
         "Oh, you think you're really clever don't you?",
-        "It's going to take more than that to fool me. Well, maybe not much more.",
+        "It's going to take more than that to fool me.",
         "You're a tricky one. I admire your moxie.",
-        "Sorry bud, but I've seen it all. Well, most of it anyway.",
+        "Sorry bud, but I've seen it all.",
         "Oldest trick in the book.",
         "Think I can't see past your little tricks?",
         "It was a good attempt. I almost didn't catch that. *Almost*.",
         "Clever, but not clever enough!",
-        "I don't see that alternative very often. It's still a fine though.",
-        "I'll admit it was a good attempt, but the law is the law."
+        "I don't see that alternative very often.",
+        "I'll admit it was a good attempt, but the law is the law.",
+        "You can't deceive me *that* easily!",
+        "Oh please, that one was obvious.",
+        "Nice try.",
+        "Didn't think I'd notice, huh? Think again.",
+        "It was a good attempt, I'll give you that."
     ],
 
     "legalize": [
