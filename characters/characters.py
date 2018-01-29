@@ -82,7 +82,7 @@ def get_commands(bot):
                 function=character_list),
             SubCommand(
                 Opt('search'),
-                Arg('tag', argtype=ArgTypes.SPLIT, additional='...'),
+                Arg('tag', argtype=ArgTypes.SPLIT),
                 doc='Searches for characters with the given tag(s).',
                 function=character_search),
             SubCommand(
