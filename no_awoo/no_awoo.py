@@ -34,9 +34,9 @@ def get_commands(bot):
                 doc='See how much money you or the given user owes.',
                 function=awoo_stats),
             SubCommand(
-                Opt('leaderboards'),
+                Opt('leaderboard'),
                 doc='See the list of worst offenders.',
-                function=awoo_leaderboards),
+                function=awoo_leaderboard),
             SubCommand(
                 Opt('toggle'),
                 Arg('channel', argtype=ArgTypes.SPLIT_OPTIONAL,
@@ -58,7 +58,7 @@ def get_commands(bot):
             Shortcut(
                 'astats', 'stats {arguments}',
                 Arg('arguments', argtype=ArgTypes.MERGED_OPTIONAL)),
-            Shortcut('aleaderboards', 'leaderboards')
+            Shortcut('aleaderboard', 'leaderboard')
         ],
         description='Consult the criminal database.')]
 
@@ -101,7 +101,7 @@ async def awoo_stats(bot, context):
     return Response(embed=embed)
 
 
-async def awoo_leaderboards(bot, context):
+async def awoo_leaderboard(bot, context):
     """Displays the top 10 violators."""
     cursor = data.db_select(bot, from_arg='awoo', additional='ORDER BY debt DESC', limit=10)
     entries = cursor.fetchall() if cursor else []
@@ -115,7 +115,7 @@ async def awoo_leaderboards(bot, context):
         user = user or 'Unknown ({})'.format(entry.user_id)
         stats[1].append('`\u200b`{}'.format(user))
 
-    embed = discord.Embed(title=':scales: Awoo violation leaderboards')
+    embed = discord.Embed(title=':scales: Awoo violation leaderboard')
     embed.add_field(name='Debt | Violations', value='\n'.join(stats[0]))
     embed.add_field(name='User', value='\n'.join(stats[1]))
     return Response(embed=embed)
@@ -131,7 +131,7 @@ async def awoo_toggle(bot, context):
         changes = []
         for channel in context.arguments:
             if channel.id in guild_awoo_data.get('disabled_channels', []):
-                action = 'is now '
+                action = 'is now'
                 data.list_data_remove(
                     bot, __name__, 'disabled_channels',
                     value=channel.id, guild_id=context.guild.id)
