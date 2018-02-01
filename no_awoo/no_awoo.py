@@ -18,7 +18,7 @@ statements = None
 substitutions = None
 fine = None
 BASIC_MATCH = re.compile(r'a+w+oo+\b')
-ADVANCED_MATCH = re.compile(r'a+[a\s]*w+[w\s]*o\s*o+[\bise]')
+ADVANCED_MATCH = re.compile(r'a+[a\s]*w+[w\s]*o\s*o+[\b\sise]')
 PLEA_MATCH = re.compile(r'legali[zs]e *a+w+oo+')
 
 
