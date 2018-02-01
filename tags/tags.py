@@ -157,8 +157,9 @@ def get_commands(bot):
             SubCommand(
                 Opt('list'),
                 Opt('author', attached='user', optional=True,
-                    convert=utilities.MemberConverter(live_check=lambda b, m ,v, *a:
-                        not (use_global_tags or isisntance(m.channel, PrivateChannel)))),
+                    convert=utilities.MemberConverter(
+                        live_check=lambda b, m, v, *a:
+                            not (use_global_tags or isinstance(m.channel, PrivateChannel)))),
                 Arg('filter', additional='more filters',
                     argtype=ArgTypes.SPLIT_OPTIONAL, quotes_recommended=False,
                     doc='Valid filters are: {}.'.format(valid_filters)),
