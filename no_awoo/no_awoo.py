@@ -18,7 +18,7 @@ statements = None
 substitutions = None
 fine = None
 BASIC_MATCH = re.compile(r'a+w+oo+\b')
-ADVANCED_MATCH = re.compile(r'a+[a\s]*w+[w\s]*o\s*o+\b')
+ADVANCED_MATCH = re.compile(r'a+[a\s]*w+[w\s]*o\s*o+[\bise]')
 PLEA_MATCH = re.compile(r'legali[zs]e *a+w+oo+')
 
 
@@ -239,7 +239,7 @@ def _awoo_check(bot, message, show_filtered=''):
 async def _violation_notification(bot, message, awoo_tier, send_message=True):
     """
     Logs the violation and (optionally) sends the user a notification.
-    
+
     Standard notification: once per violation, up to 1 time
     None: 2 violations
     Silence notification: 1 violation
@@ -251,7 +251,7 @@ async def _violation_notification(bot, message, awoo_tier, send_message=True):
     Tier 2: 5 members
     Tier 3: 8 members
     """
-    
+
     author, channel = message.author, message.channel
     current_time = time.time()
     violation_data = data.get(
