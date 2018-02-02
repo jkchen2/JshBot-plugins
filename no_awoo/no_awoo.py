@@ -53,7 +53,7 @@ def get_commands(bot):
             SubCommand(
                 Opt('reset'),
                 Arg('user', argtype=ArgTypes.MERGED, convert=utilities.MemberConverter()),
-                function=awoo_reset)],
+                function=awoo_reset, elevated_level=3)],
         shortcuts=[
             Shortcut(
                 'astats', 'stats {arguments}',
