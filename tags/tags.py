@@ -22,9 +22,9 @@ uses_configuration = True
 CBException = ConfiguredBotException('Tags')
 
 # NOTE: Do not change the order of flags
-flag_list = ['Sound', 'Private', 'NSFW', 'Complex', 'Random']
-simple_flag_list = list(map(str.lower, flag_list))
-use_global_tags, replace_commands = False, False  # Set by on_ready
+FLAG_LIST = ['Sound', 'Private', 'NSFW', 'Complex', 'Random']
+SIMPLE_FLAG_LIST = list(it.lower() for it in FLAG_LIST)
+USE_GLOBAL_TAGS, REPLACE_COMMANDS = False, False  # Set by on_ready
 
 
 # Converts the input (value) into a tag tuple
@@ -67,12 +67,12 @@ class TagConverter():
                     raise CBException("This tag is private.")
                 for restriction in server_filter:
                     if restriction in flags:
-                        flag_name = flag_list[simple_flag_list.index(restriction)]
+                        flag_name = FLAG_LIST[SIMPLE_FLAG_LIST.index(restriction)]
                         raise CBException(
                             "{} tags are disabled on this server.".format(flag_name))
                 for restriction in channel_filter:
                     if restriction in flags:
-                        flag_name = flag_list[simple_flag_list.index(restriction)]
+                        flag_name = FLAG_LIST[SIMPLE_FLAG_LIST.index(restriction)]
                         raise CBException(
                             "{} tags are disabled in this channel.".format(flag_name))
 
@@ -88,7 +88,7 @@ class TagConverter():
                         raise CBException("Sound tags are disabled in this voice channel.")
                     for restriction in voice_filter:
                         if restriction in flags:
-                            flag_name = flag_list[simple_flag_list.index(restriction)]
+                            flag_name = FLAG_LIST[SIMPLE_FLAG_LIST.index(restriction)]
                             raise CBException(
                                 "{} sound tags are disabled in this voice channel.".format(
                                     flag_name))
@@ -100,9 +100,9 @@ class TagConverter():
 def get_commands(bot):
     new_commands = []
 
-    valid_filters = '`{}`'.format('`, `'.join(it for it in simple_flag_list))
-    use_global_tags = configurations.get(bot, __name__, 'global_tags')
-    global_tag_elevation = 3 if use_global_tags else 1
+    valid_filters = '`{}`'.format('`, `'.join(it for it in SIMPLE_FLAG_LIST))
+    USE_GLOBAL_TAGS = configurations.get(bot, __name__, 'global_tags')
+    global_tag_elevation = 3 if USE_GLOBAL_TAGS else 1
     new_commands.append(Command(
         'tag', subcommands=[
             SubCommand(
@@ -120,26 +120,26 @@ def get_commands(bot):
                 Arg('tag name'),
                 Arg('content', argtype=ArgTypes.MERGED),
                 doc='Creates a tag with the given options.',
-                allow_direct=use_global_tags, function=tag_create),
+                allow_direct=USE_GLOBAL_TAGS, function=tag_create),
             SubCommand(
                 Opt('remove'),
                 Arg('tag name', argtype=ArgTypes.MERGED, convert=TagConverter(tag_owner=True)),
                 doc='Removes the specified tag. You must be the tag author or a moderator',
-                allow_direct=use_global_tags, function=tag_remove),
+                allow_direct=USE_GLOBAL_TAGS, function=tag_remove),
             SubCommand(
                 Opt('raw'), Opt('file', optional=True, doc='Send contents as a file.'),
                 Arg('tag name', argtype=ArgTypes.MERGED,
                     convert=TagConverter(apply_checks=True, skip_sound=True)),
                 doc='Gets the raw tag data. Useful for figuring out what is inside '
                     'a random tag.',
-                allow_direct=use_global_tags, function=tag_raw),
+                allow_direct=USE_GLOBAL_TAGS, function=tag_raw),
             SubCommand(
                 Opt('info'),
                 Arg('tag name', argtype=ArgTypes.MERGED_OPTIONAL, convert=TagConverter()),
                 doc='Gets tag information for the server. If a tag is given, '
                     'this gets basic tag information instead, including the author, '
                     'creation date, number of uses, length, etc.',
-                allow_direct=use_global_tags, function=tag_info),
+                allow_direct=USE_GLOBAL_TAGS, function=tag_info),
             SubCommand(
                 Opt('edit', attached='tag name', convert=TagConverter(tag_owner=True)),
                 Opt('set', attached='content', optional=True),
@@ -153,13 +153,13 @@ def get_commands(bot):
                 Opt('private', optional=True, group='extra'),
                 Opt('nsfw', optional=True, group='extra'),
                 doc='Modifies the given tag with the given options.',
-                allow_direct=use_global_tags, function=tag_edit),
+                allow_direct=USE_GLOBAL_TAGS, function=tag_edit),
             SubCommand(
                 Opt('list'),
                 Opt('author', attached='user', optional=True,
                     convert=utilities.MemberConverter(
                         live_check=lambda b, m, v, *a:
-                            not (use_global_tags or isinstance(m.channel, PrivateChannel)))),
+                            not (USE_GLOBAL_TAGS or isinstance(m.channel, PrivateChannel)))),
                 Arg('filter', additional='more filters',
                     argtype=ArgTypes.SPLIT_OPTIONAL, quotes_recommended=False,
                     doc='Valid filters are: {}.'.format(valid_filters)),
@@ -182,18 +182,18 @@ def get_commands(bot):
                 Opt('private', optional=True, doc='Includes private tags in the export.'),
                 Arg('tag name', argtype=ArgTypes.MERGED_OPTIONAL, convert=TagConverter()),
                 doc='Exports the tag(s) as a CSV file.',
-                allow_direct=use_global_tags, elevated_level=global_tag_elevation,
+                allow_direct=USE_GLOBAL_TAGS, elevated_level=global_tag_elevation,
                 function=tag_export),
             SubCommand(
                 Opt('import'),
                 Opt('replace', optional=True, doc='Overwrites tags if there is a name conflict.'),
                 Attachment('tag database'),
                 doc='Imports the attached tag database file.',
-                allow_direct=use_global_tags, elevated_level=global_tag_elevation,
+                allow_direct=USE_GLOBAL_TAGS, elevated_level=global_tag_elevation,
                 function=tag_import),
             SubCommand(
                 Arg('tag name', argtype=ArgTypes.MERGED, convert=TagConverter(apply_checks=True)),
-                allow_direct=use_global_tags, doc='Retrieves the given tag.',
+                allow_direct=USE_GLOBAL_TAGS, doc='Retrieves the given tag.',
                 confidence_threshold=3, function=tag_retrieve)],
         shortcuts=[
             Shortcut('t', '{arguments}', Arg('arguments', argtype=ArgTypes.MERGED)),
@@ -269,9 +269,9 @@ async def tag_create(bot, context):
         content = parser.split_parameters(context.arguments[1])[::2]
     else:
         content = [context.arguments[1]]
-    flag_list = list(context.options.keys())
-    flag_list.remove('create')
-    flag_bits = _get_flag_bits(flag_list)
+    tag_flag_list = list(context.options.keys())
+    tag_flag_list.remove('create')
+    flag_bits = _get_flag_bits(tag_flag_list)
     tag_data = [
         cleaned_tag_name,               # key
         content,                        # value
@@ -520,7 +520,7 @@ async def tag_list(bot, context):
     if context.arguments[0]:
         flag_strip = []
         for flag in context.arguments:
-            if flag.lower() not in simple_flag_list:
+            if flag.lower() not in SIMPLE_FLAG_LIST:
                 raise CBException("`{}` is not a valid flag.".format(flag))
             flag_strip.append(flag.lower())
         flag_restriction = _get_flag_bits(context.arguments)
@@ -608,9 +608,9 @@ def _build_tag_list_response(context, buttons, guild_tags, tag_blob, filter_text
 
 async def tag_toggle(bot, context):
     flag = context.arguments[0].lower()
-    if flag not in simple_flag_list and flag != 'all':
+    if flag not in SIMPLE_FLAG_LIST and flag != 'all':
         raise CBException("`{}` is not a valid flag.".format(flag))
-    flag_full_name = flag_list[simple_flag_list.index(flag)] if flag != 'all' else 'All'
+    flag_full_name = FLAG_LIST[SIMPLE_FLAG_LIST.index(flag)] if flag != 'all' else 'All'
 
     channel = context.arguments[1]
     if channel:
@@ -638,7 +638,7 @@ async def tag_toggle(bot, context):
     if 'all' in current_filter:
         response.content += "All tags are disabled for the {}.".format(location)
     elif current_filter:
-        flag_full_names = [flag_list[simple_flag_list.index(it)] for it in current_filter]
+        flag_full_names = [FLAG_LIST[SIMPLE_FLAG_LIST.index(it)] for it in current_filter]
         response.content += "Disallowed tag types for the {}: `{}`".format(
             location, '`, `'.join(flag_full_names))
     else:
@@ -779,13 +779,13 @@ async def _import_tag_status(bot, context, response):
             tag_name = tag['full_name']
             cleaned_tag_name = _cleaned_tag_name(tag_name)
             if cleaned_tag_name in context.keywords:
-                raise CBException("Name reserved as a keyword.".format(tag_name))
+                raise CBException("Name reserved as a keyword.", tag_name)
             elif cleaned_tag_name.startswith(tuple(context.keywords)):
-                raise CBException("Name starts with a reserved keyword.".format(tag_name))
+                raise CBException("Name starts with a reserved keyword.", tag_name)
             elif len(tag_name) > length_limit:
-                raise CBException("Name is too long.".format(tag_name))
+                raise CBException("Name is too long.", tag_name)
             elif len(cleaned_tag_name) == 0:
-                raise CBException("Name has no valid characters.".format(tag_name))
+                raise CBException("Name has no valid characters.", tag_name)
             elif len(tag['content']) == 0:
                 raise CBException("")
             test = _get_tag(bot, cleaned_tag_name, context.guild.id, safe=True)
@@ -923,10 +923,10 @@ def _format_tag(tag, stripped=[], clean=True):
 def _get_flags(flag_bits, simple=False):
     """Gets a list of strings representing the flags of the tag.
 
-    If simple is set to True, this will use the simple_flag_list instead.
+    If simple is set to True, this will use the SIMPLE_FLAG_LIST instead.
     """
     found_flags = []
-    specified_flag_list = simple_flag_list if simple else flag_list
+    specified_flag_list = SIMPLE_FLAG_LIST if simple else FLAG_LIST
     for it, flag in enumerate(specified_flag_list):
         if (flag_bits >> it) & 1:
             found_flags.append(flag)
@@ -938,7 +938,7 @@ def _get_flag_bits(given_flags):
     flag_value = 0
     for flag in given_flags:
         try:
-            flag_index = simple_flag_list.index(flag.lower())
+            flag_index = SIMPLE_FLAG_LIST.index(flag.lower())
             flag_value += 1 << flag_index
         except ValueError:
             pass
@@ -1156,7 +1156,7 @@ async def _tag_list_browser(bot, context, response, result, timed_out):
 
     # Edit embed
     response.embed.title = '{} tags for {}'.format(guild_tag_data['total'], response.current_guild)
-    response.embed.description='{}```md\n{}```'.format(
+    response.embed.description = '{}```md\n{}```'.format(
         response.filter_text, tag_page_listing[response.page])
     if len(response.guild_tags) == 1:
         guild_page_value = '\u200b'
@@ -1169,9 +1169,9 @@ async def _tag_list_browser(bot, context, response, result, timed_out):
 
 async def bot_on_ready_boot(bot):
     """Sets up the configuration globals"""
-    global use_global_tags, replace_commands
-    use_global_tags = configurations.get(bot, __name__, 'global_tags')
-    replace_commands = configurations.get(bot, __name__, 'replace_commands')
+    global USE_GLOBAL_TAGS, REPLACE_COMMANDS
+    USE_GLOBAL_TAGS = configurations.get(bot, __name__, 'global_tags')
+    REPLACE_COMMANDS = configurations.get(bot, __name__, 'replace_commands')
 
     permissions = {
         'attach_files': "Allows tag exports to be uploaded as a text file.",
