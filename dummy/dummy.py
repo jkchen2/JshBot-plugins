@@ -318,10 +318,6 @@ async def active_marquee(bot, context, response):
 # If necessary, standard client events can be defined here, and they will be
 #   called appropriately. Be sure to include the bot argument first!
 
-async def on_ready(bot):
-    logger.info("on_ready was called from dummy.py!")
-
-
 async def on_message_edit(bot, before, after):
     if (before.author != bot.user and
             configurations.get(bot, __name__, key='show_edited_messages')):
@@ -332,6 +328,7 @@ async def on_message_edit(bot, before, after):
 async def bot_on_ready_boot(bot):
     """This is called only once every time the bot is started (or reloaded)."""
     # Use this to set up additonal permissions for the plugin
+    logger.info("bot_on_ready_boot was called from dummy.py!")
     permissions = {
         'read_messages': "This is a dummy additional permission.",
         'change_nickname': "This allows the bot to change its own nickname."
