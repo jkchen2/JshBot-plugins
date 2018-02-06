@@ -17,7 +17,7 @@ from jshbot.exceptions import BotException, ConfiguredBotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.2.1'
+__version__ = '0.2.2'
 uses_configuration = True
 CBException = ConfiguredBotException('Tags')
 
@@ -30,13 +30,16 @@ USE_GLOBAL_TAGS, REPLACE_COMMANDS = False, False  # Set by on_ready
 # Converts the input (value) into a tag tuple
 class TagConverter():
 
-    def __init__(self, apply_checks=False, tag_owner=False, skip_sound=False):
+    def __init__(
+            self, apply_checks=False, tag_owner=False,
+            skip_sound=False, voice_channel_bypass=False):
         self.apply_checks = apply_checks
         self.tag_owner = tag_owner
         self.skip_sound = skip_sound
+        self.voice_channel_bypass = voice_channel_bypass
         self.pass_error = True
 
-    def __call__(self, bot, message, value, *a):
+    def __call__(self, bot, message, value, *a, **kwargs):
         tag = _get_tag(bot, value, message.guild.id)
 
         if self.tag_owner:
@@ -52,7 +55,7 @@ class TagConverter():
 
         if self.apply_checks:
             flags = _get_flags(tag.flags, simple=True)
-            is_mod = data.is_mod(bot, message.guild, message.author.id)
+            is_mod = data.is_mod(bot, member=message.author)
             if not is_mod:
                 server_filter = data.get(
                     bot, __name__, 'filter', guild_id=message.guild.id, default=[])
@@ -77,9 +80,10 @@ class TagConverter():
                             "{} tags are disabled in this channel.".format(flag_name))
 
             if not self.skip_sound and 'sound' in flags:
-                if message.author.voice is None:  # Check channel mute filters
+                # bot.extra = message
+                if not self.voice_channel_bypass and message.author.voice is None:
                     raise CBException("This is a sound tag - you are not in a voice channel.")
-                voice_channel = message.author.voice.channel
+                voice_channel = kwargs.get('channel_bypass') or message.author.voice.channel
                 voice_filter = data.get(
                     bot, __name__, 'filter', guild_id=message.guild.id,
                     channel_id=voice_channel.id, default=[])
@@ -862,36 +866,40 @@ async def tag_retrieve(bot, context):
 
     if 'sound' in flags:
         voice_channel = context.author.voice.channel
+        await _play_sound_tag(bot, tag, content, voice_channel, elevation=context.elevation)
 
-        sound_file = data.get_from_cache(bot, None, url=content)
-        if not sound_file:  # Can't reuse URLs unfortunately
-            if content.startswith('https://my.mixtape.moe/'):
-                download_url = content
-            else:
-                try:
-                    ytdl_options = {'format': 'bestaudio/best', 'noplaylist': True}
-                    downloader = YoutubeDL(ytdl_options)
-                    info = await utilities.future(downloader.extract_info, content, download=False)
-                    download_url = info['formats'][0]['url']
-                except Exception as e:
-                    logger.warn("youtube_dl failed to download file.")
-                    logger.warn("Exception information: {}".format(e))
-                    raise CBException("Failed to download the file.", e=e)
-            sound_file = await data.add_to_cache(bot, download_url, name=content)
-
-        # TODO: Check ffmpeg options?
-        #ffmpeg_options = '-protocol_whitelist "file,http,https,tcp,tls"'
-        #audio_source = discord.FFmpegPCMAudio(sound_file, before_options=ffmpeg_options)
-        audio_source = discord.FFmpegPCMAudio(sound_file)
-        audio_source = discord.PCMVolumeTransformer(audio_source, volume=tag.volume)
-        voice_client = await utilities.join_and_ready(
-            bot, voice_channel, is_mod=context.elevation >= 1)
-        try:
-            await utilities.play_and_leave(bot, context.guild, audio_source)
-        except discord.ClientException as e:
-            raise CBException("Audio is already playing. (Try again in a few seconds)")
     else:
         return Response(content=content)
+
+
+async def _play_sound_tag(bot, tag, url, voice_channel, elevation=0, delay=30):
+    """Plays the given tag in the voice channel."""
+    sound_file = data.get_from_cache(bot, None, url=url)
+    if not sound_file:  # Can't reuse URLs unfortunately
+        if url.startswith('https://my.mixtape.moe/'):
+            download_url = url
+        else:
+            try:
+                ytdl_options = {'format': 'bestaudio/best', 'noplaylist': True}
+                downloader = YoutubeDL(ytdl_options)
+                info = await utilities.future(downloader.extract_info, url, download=False)
+                download_url = info['formats'][0]['url']
+            except Exception as e:
+                logger.warn("youtube_dl failed to download file.")
+                logger.warn("Exception information: {}".format(e))
+                raise CBException("Failed to download the file.", e=e)
+        sound_file = await data.add_to_cache(bot, download_url, name=url)
+
+    # TODO: Check ffmpeg options?
+    #ffmpeg_options = '-protocol_whitelist "file,http,https,tcp,tls"'
+    #audio_source = discord.FFmpegPCMAudio(sound_file, before_options=ffmpeg_options)
+    audio_source = discord.FFmpegPCMAudio(sound_file)
+    audio_source = discord.PCMVolumeTransformer(audio_source, volume=tag.volume)
+    await utilities.join_and_ready(bot, voice_channel, is_mod=elevation >= 1)
+    try:
+        await utilities.play_and_leave(bot, voice_channel.guild, audio_source, delay=delay)
+    except discord.ClientException as e:
+        raise CBException("Audio is already playing. (Try again in a few seconds)")
 
 
 def _cleaned_tag_name(name):
