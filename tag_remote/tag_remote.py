@@ -1,3 +1,4 @@
+import asyncio
 import random
 import json
 import discord
@@ -27,7 +28,12 @@ def get_commands(bot):
             SubCommand(
                 Opt('stop'),
                 doc='Stops the current sound tag remote session.',
-                function=tagremote_stop)
+                function=tagremote_stop),
+            SubCommand(
+                Opt('update'),
+                doc='Provides a refreshed tag list. Updates can be '
+                    'applied in the settings menu of the tag remote app.',
+                function=tagremote_update)
         ],
         description='Call sound tags through your phone.'
     )]
@@ -53,21 +59,12 @@ async def tagremote(bot, context):
         description=description))
 
 
-async def tagremote_start(bot, context):
-    """Starts a tag remote session."""
-
-    # Check for an existing session
-    session_data = data.get(bot, __name__, 'data', guild_id=context.guild.id)
-    if session_data:
-        raise CBException("Session already exists.")
-    if not context.channel.permissions_for(context.guild.me).manage_webhooks:
-        raise CBException("Missing the `Manage Webhooks` permission.")
-
-    # Retrieve and format tag data
+def _get_tag_dictionary(bot, guild):
+    """Retrieves the tag dictionary of the server."""
     if configurations.get(bot, 'tags.py', 'global_tags'):
         table_suffix = 'global'
     else:
-        table_suffix = str(context.guild.id)
+        table_suffix = str(guild.id)
     tags_plugin = bot.plugins['tags.py']
     sound_bit = tags_plugin._get_flag_bits(['sound'])
     private_bit = tags_plugin._get_flag_bits(['private'])
@@ -81,6 +78,39 @@ async def tagremote_start(bot, context):
     tag_dictionary = {}
     for tag in raw_tag_list:
         tag_dictionary[tag.key] = {'name': tag.name, 'hits': tag.hits}
+    return tag_dictionary
+
+
+async def _upload_session_data(bot, channel, voice_channel, webhook, tag_dictionary):
+    """Uploads the tag dictionary and returns the session code."""
+    tag_data = utilities.get_text_as_file(json.dumps({
+        'version': DATA_VERSION,
+        'guild': str(channel.guild.id),
+        'guild_name': channel.guild.name,
+        'channel': str(channel.id),
+        'channel_name': channel.name,
+        'voice_channel': str(voice_channel.id),
+        'voice_channel_name': voice_channel.name,
+        'webhook': [str(webhook.id), webhook.token],
+        'tags': tag_dictionary
+    }))
+    url = await utilities.upload_to_discord(bot, tag_data, filename='remote_data', close=True)
+    url_segments = [it[::-1] for it in url[::-1].split('/')[2:0:-1]]
+    return '{}:{}'.format(*url_segments)
+
+
+async def tagremote_start(bot, context):
+    """Starts a tag remote session."""
+
+    # Check for an existing session
+    session_data = data.get(bot, __name__, 'data', guild_id=context.guild.id)
+    if session_data:
+        raise CBException("Session already exists.")
+    if not context.channel.permissions_for(context.guild.me).manage_webhooks:
+        raise CBException("Missing the `Manage Webhooks` permission.")
+
+    # Retrieve and format tag data
+    tag_dictionary = _get_tag_dictionary(bot, context.guild)
 
     # Check that the user is in an unblocked voice channel
     if not context.author.voice:
@@ -92,20 +122,8 @@ async def tagremote_start(bot, context):
     webhook = await context.channel.create_webhook(name='Tag Remote []')
 
     # Upload session data
-    tag_data = utilities.get_text_as_file(json.dumps({
-        'version': DATA_VERSION,
-        'guild': str(context.guild.id),
-        'guild_name': context.guild.name,
-        'channel': str(context.channel.id),
-        'channel_name': context.channel.name,
-        'voice_channel': str(voice_channel.id),
-        'voice_channel_name': voice_channel.name,
-        'webhook': [str(webhook.id), webhook.token],
-        'tags': tag_dictionary
-    }))
-    url = await utilities.upload_to_discord(bot, tag_data, filename='remote_data', close=True)
-    url_segments = [it[::-1] for it in url[::-1].split('/')[2:0:-1]]
-    session_code = '{}:{}'.format(*url_segments)
+    session_code = await _upload_session_data(
+        bot, context.channel, voice_channel, webhook, tag_dictionary)
 
     # Track session data
     session_data = {
@@ -124,6 +142,42 @@ async def tagremote_start(bot, context):
 async def tagremote_stop(bot, context):
     await _delete_session(bot, context.guild)
     return Response(content="The session has been stopped.")
+
+
+async def tagremote_update(bot, context):
+    """Renames the webhook with an updated tag list file."""
+
+    # Check for an existing session
+    session_data = data.get(bot, __name__, 'data', guild_id=context.guild.id)
+    if not session_data:
+        raise CBException("No session available.")
+    channel = data.get_channel(bot, session_data['channel'])
+    if not channel:
+        await _delete_session(bot, context.guild)
+        raise CBException("Failed to get the channel.")
+    voice_channel = data.get_channel(bot, session_data['voice_channel'])
+    if not voice_channel:
+        await _delete_session(bot, context.guild)
+        raise CBException("Failed to get the voice channel.")
+    webhooks = await channel.webhooks()
+    if not webhooks:
+        await _delete_session(bot, context.guild)
+        raise CBException("No webhooks available.")
+    for webhook in webhooks:
+        if webhook.id == session_data['webhook']:
+            break
+    else:
+        await _delete_session(bot, context.guild)
+        raise CBException("Webhook not found.")
+
+    tag_dictionary = _get_tag_dictionary(bot, context.guild)
+    session_code = await _upload_session_data(bot, channel, voice_channel, webhook, tag_dictionary)
+
+    updated_code = session_code.split(':')[1]
+    await webhook.edit(name='Tag Remote [{}]'.format(updated_code))
+
+    return Response(
+        content="Tag data refreshed. Update the remote on your phone via the options menu.")
 
 
 async def _delete_session(bot, guild):
@@ -159,47 +213,44 @@ async def bot_on_ready_boot(bot):
     utilities.add_bot_permissions(bot, __name__, **permissions)
 
 
-async def on_voice_state_update(bot, member, before, after):
-    """Detects when all members have left the channel."""
-    session_data = data.get(bot, __name__, 'data', guild_id=member.guild.id)
-    if (session_data and before.channel and
-            before.channel.id == session_data['voice_channel'] and
-            not [it for it in before.channel.members if not it.bot]):
-        await _delete_session(bot, member.guild)
-        channel = data.get_channel(bot, session_data['channel'], safe=True)
-        await channel.send('The session has been stopped automatically.')
-
-
 async def on_message(bot, message):
     """Reads webhook messages."""
     if message.author.id in WEBHOOK_SET:
         session_data = data.get(bot, __name__, 'data', guild_id=message.guild.id)
         voice_channel = data.get_channel(bot, session_data['voice_channel'], guild=message.guild)
-        if not [it for it in voice_channel.members if not it.bot]:
-            await _delete_session(bot, message.guild)
-            channel = data.get_channel(bot, session_data['channel'], safe=True)
-            await channel.send('The session has been stopped automatically.')
-            return
 
-        if message.content.startswith('[Retrieve]'):
+        # Ignore if nobody is in the channel
+        if not [it for it in voice_channel.members if not it.bot]:
+            pass
+
+        # Retrieve tag
+        elif message.content.startswith('[Retrieve]'):
             tag_name = message.content[10:].strip()
             try:
                 tag = TAG_CONVERTER(bot, message, tag_name, channel_bypass=voice_channel)
             except BotException as e:
                 logger.warn("Failed to retrieve tag: %s", e)
-                return
-            tags_plugin = bot.plugins['tags.py']
-            url = random.choice(tag.value)
-            try:
-                await tags_plugin._play_sound_tag(bot, tag, url, voice_channel, delay=-1)
-            except BotException as e:
-                logger.warn("Failed to play tag: %s", e)
-                return
-            tags_plugin._update_hits(bot, tag.key, message.author.id, message.guild.id)
+            else:
+                tags_plugin = bot.plugins['tags.py']
+                url = random.choice(tag.value)
+                try:
+                    await tags_plugin._play_sound_tag(bot, tag, url, voice_channel, delay=-1)
+                except BotException as e:
+                    logger.warn("Failed to play tag: %s", e)
+                else:
+                    tags_plugin._update_hits(bot, tag.key, message.author.id, message.guild.id)
 
+        # Stop audio
         elif message.content == '[Stop audio]':
             voice_client = message.guild.voice_client
             if (voice_client and
                     voice_client.channel == voice_channel and
                     voice_client.is_playing()):
                 voice_client.stop()
+
+        # Always remove messages
+        await asyncio.sleep(3)
+        try:
+            await message.delete()
+        except:
+            pass
