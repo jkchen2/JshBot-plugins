@@ -85,6 +85,7 @@ async def _upload_session_data(bot, channel, voice_channel, webhook, tag_diction
     """Uploads the tag dictionary and returns the session code."""
     tag_data = utilities.get_text_as_file(json.dumps({
         'version': DATA_VERSION,
+        'bot_id': str(bot.user.id),
         'guild': str(channel.guild.id),
         'guild_name': channel.guild.name,
         'channel': str(channel.id),
