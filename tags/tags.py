@@ -17,7 +17,7 @@ from jshbot.exceptions import BotException, ConfiguredBotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.2.2'
+__version__ = '0.2.3'
 uses_configuration = True
 CBException = ConfiguredBotException('Tags')
 
@@ -80,7 +80,6 @@ class TagConverter():
                             "{} tags are disabled in this channel.".format(flag_name))
 
             if not self.skip_sound and 'sound' in flags:
-                # bot.extra = message
                 if not self.voice_channel_bypass and message.author.voice is None:
                     raise CBException("This is a sound tag - you are not in a voice channel.")
                 voice_channel = kwargs.get('channel_bypass') or message.author.voice.channel
@@ -191,6 +190,7 @@ def get_commands(bot):
             SubCommand(
                 Opt('import'),
                 Opt('replace', optional=True, doc='Overwrites tags if there is a name conflict.'),
+                Opt('ignoreerrors', optional=True, doc='Ignores any errors while importing.'),
                 Attachment('tag database'),
                 doc='Imports the attached tag database file.',
                 allow_direct=USE_GLOBAL_TAGS, elevated_level=global_tag_elevation,
@@ -742,7 +742,7 @@ async def tag_import(bot, context):
     return Response(
         content="Importing tags...",
         message_type=MessageTypes.ACTIVE,
-        extra=tag_data,
+        extra=[tag_data, 'ignoreerrors' in context.options],
         extra_function=_import_tag_status,
         tag_limit=tag_limit)
 
@@ -755,11 +755,13 @@ async def _import_tag_status(bot, context, response):
     replace_tags = 'replace' in context.options
     overwrites = 0
     new_tags = []
+    failed = []
+    tag_data, ignore_errors = response.extra
     required = (
         ('full_name', str), ('flags', int), ('content', (list, str)),
         ('author', int), ('created', int), ('hits', int), ('last_used', (None, int)),
         ('last_used_by', (None, int)), ('volume', float))
-    for index, tag_pair in enumerate(response.extra.items()):
+    for index, tag_pair in enumerate(tag_data.items()):
         _, tag = tag_pair
 
         # Check for issues
@@ -832,13 +834,16 @@ async def _import_tag_status(bot, context, response):
 
             if time.time() - last_update_time > 5:
                 await response.message.edit(content="Importing tags... [ {} / {} ]".format(
-                    index + 1, len(response.extra)))
+                    index + 1, len(tag_data)))
                 last_update_time = time.time()
             logger.debug("Tag added to new_tags: %s", cleaned_tag_name)
 
         except Exception as e:
             try:
-                raise CBException("Failed to import tag `{}`".format(tag_name), e=e)
+                if ignore_errors:
+                    failed.append(tag_name)
+                else:
+                    raise CBException("Failed to import tag `{}`".format(tag_name), e=e)
             except NameError:
                 raise CBException("Failed to import tags", e=e)
 
@@ -850,9 +855,12 @@ async def _import_tag_status(bot, context, response):
 
     for tag in new_tags:
         _add_tag(bot, tag, context.guild.id, replace=True)
-    await response.message.edit(content="Imported {} tags. ({} new, {} replaced)".format(
-        len(new_tags), len(new_tags) - overwrites, overwrites))
-
+    if failed:
+        failed_text = '\nFailed to import: {}'.format(', '.join(failed))[:1500]
+    else:
+        failed_text = ''
+    await response.message.edit(content="Imported {} tags. ({} new, {} replaced){}".format(
+        len(new_tags), len(new_tags) - overwrites, overwrites, failed_text))
 
 
 async def tag_retrieve(bot, context):
