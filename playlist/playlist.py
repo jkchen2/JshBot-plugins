@@ -21,7 +21,7 @@ from jshbot.exceptions import ConfiguredBotException, BotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.3.1'
+__version__ = '0.3.2'
 CBException = ConfiguredBotException('Music playlist')
 uses_configuration = True
 
@@ -243,7 +243,6 @@ class MusicPlayer():
 
     async def set_new_message(self, channel, autoplay=False, track_index=None):
         if self.command_task:
-            logger.debug("============= Canceling command task! 1")
             self.command_task.cancel()
         if self.progress_task:
             self.progress_task.cancel()
@@ -615,7 +614,6 @@ class MusicPlayer():
         return (max(duration - self.progress, 0), use_skip)
 
     async def play(self, track_index=None, skipped=False, wrap_track_numbers=True):
-        logger.debug("====== Play was requested song: %s", track_index)
         if self.state in (States.LOADING, States.STOPPED):
             return
         if (self.state == States.PAUSED and
@@ -763,7 +761,6 @@ class MusicPlayer():
             if self.timer_task:
                 self.timer_task.cancel()
             if self.command_task:
-                logger.debug("============= Canceling command task! 2")
                 self.command_task.cancel()
             if self.progress_task:
                 self.progress_task.cancel()
@@ -936,7 +933,8 @@ class MusicPlayer():
                         '⏮, ⏯, ⏭, ⏹: Back, Play|Pause, Next, Stop\n'
                         '🔀: Shuffle (playlist mode only)\n'
                         '🎵: Generate tracklist\n'
-                        '⬅, ⏺, ➡: Track page navigation\n'
+                        '⬅, ➡: Track page navigation\n'
+                        '⏺: Reset track page to current playing track\n'
                         '⏏: Voteskip (must be listening)\n'
                         '❓: This help page'
                     )
@@ -953,16 +951,19 @@ class MusicPlayer():
                         ':pause_button: (White): Paused\n'
                         ':arrows_counterclockwise: (Orange): Loading'
                     )
+                    command_help = (
+                        'To add tracks: {0[3].help_string}\n'
+                        'To remove tracks: {0[4].help_string}\n'
+                        'For more, type `help playlist`'
+                    ).format(self.bot.commands['playlist'].subcommands)
                     help_embed = discord.Embed(title=':question: Music player help')
+                    help_embed.add_field(name='Basic usage', value=command_help)
                     help_embed.add_field(name='Buttons', value=button_help)
                     help_embed.add_field(name='Control types', value=permissions_help)
                     help_embed.add_field(name='Status icons', value=status_help)
                     asyncio.ensure_future(result[1].send(embed=help_embed))
 
-                else:
-                    logger.debug("THIS SHOULD NEVER HAPPEN WHAT: %s", command)
         except Exception as e:
-            #self.bot.extra = e
             logger.warn("Something bad happened. %s", e)
 
 
