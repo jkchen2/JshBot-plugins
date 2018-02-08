@@ -35,7 +35,8 @@ def get_commands(bot):
                     'applied in the settings menu of the tag remote app.',
                 function=tagremote_update)
         ],
-        description='Call sound tags through your phone.'
+        description='Call sound tags through your phone.',
+        allow_direct=False
     )]
 
 
