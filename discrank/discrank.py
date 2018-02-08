@@ -49,7 +49,10 @@ class SummonerConverter():
     async def __call__(self, bot, message, value, *a):
         if not value:
             raise CBException("Summoner name must not be blank.")
-        region = data.get(bot, __name__, 'region', guild_id=message.guild.id, default='na')
+        if isinstance(message.channel, discord.DMChannel):
+            region = 'na'
+        else:
+            region = data.get(bot, __name__, 'region', guild_id=message.guild.id, default='na')
         return await _get_summoner(bot, value, region, force_update=self.force_update)
 
 
