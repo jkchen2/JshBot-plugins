@@ -10,15 +10,15 @@ from jshbot.exceptions import ConfiguredBotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.1.3'
+__version__ = '0.1.4'
 CBException = ConfiguredBotException('Awoo police')
 uses_configuration = True
 
 statements = None
 substitutions = None
 fine = None
-BASIC_MATCH = re.compile(r'a+w+oo+\b')
-ADVANCED_MATCH = re.compile(r'a+[a\s]*w+[w\s]*o\s*o+(\b|[\sise])')
+BASIC_MATCH = re.compile(r'\ba+w+oo+\b')
+ADVANCED_MATCH = re.compile(r'\ba+[a\s]*w+[w\s]*o\s*o+(\b|[\sise])')
 PLEA_MATCH = re.compile(r'legali[zs]e *a+w+oo+')
 
 
@@ -194,7 +194,7 @@ def _awoo_check(bot, message, show_filtered=''):
     """
 
     # Initial content check
-    content = show_filtered or (message.content.lower() if message.content else '')
+    content = show_filtered or (message.clean_content.lower() if message.content else '')
     author, channel = message.author, message.channel
     if not content or author.bot or isinstance(channel, discord.abc.PrivateChannel):
         return
