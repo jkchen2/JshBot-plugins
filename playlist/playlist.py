@@ -21,7 +21,7 @@ from jshbot.exceptions import ConfiguredBotException, BotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.3.2'
+__version__ = '0.3.3'
 CBException = ConfiguredBotException('Music playlist')
 uses_configuration = True
 
@@ -204,7 +204,8 @@ class MusicPlayer():
         # Actively update threshold/cutoff timer
         if self.timer_task and self.state == States.PLAYING:
             self.timer_task.cancel()
-            self.timer_task = asyncio.ensure_future(self._track_timer(*self._get_delay()))
+            self.timer_task = asyncio.ensure_future(
+                self._track_timer(*self._get_delay(config_update=True)))
 
     async def _connect(self, autoplay=False, track_index=None):
         is_mod = data.is_mod(self.bot, self.guild, self.author.id)
@@ -589,7 +590,7 @@ class MusicPlayer():
         logger.debug("Finished sleeping for %s seconds. Time: %s", sleeptime, time.time())
         await self.update_state()
         if self.state == States.STOPPED or track_check != self.now_playing:
-            logger.debug("The track timer resumed????????????????????????????????")
+            logger.debug("The track timer resumed?")
             return
         while self.state == States.LOADING:
             logger.warn("Player was moved while the track was loading.")
@@ -604,17 +605,18 @@ class MusicPlayer():
             logger.debug('_track_timer is moving on: %s', use_skip)
             asyncio.ensure_future(self.play(skipped=use_skip))
 
-    def _get_delay(self):  # Gets track delay with cutoff
+    def _get_delay(self, config_update=False):  # Gets track delay with cutoff
         if self.now_playing.duration > self.threshold:
             duration = self.cutoff
             use_skip = self.now_playing
         else:
             duration = self.now_playing.duration
             use_skip = False
-        temp = (max(duration - self.progress, 0), use_skip)
-        logger.debug('_get_delay got: %s', temp)
-        return temp
-        #return (max(duration - self.progress, 0), use_skip)
+        if config_update:
+            current_progress = self.progress + time.time() - self.start_time
+        else:
+            current_progress = self.progress
+        return (max(duration - current_progress, 0), use_skip)
 
     async def play(self, track_index=None, skipped=False, wrap_track_numbers=True):
         if self.state in (States.LOADING, States.STOPPED):
@@ -1347,34 +1349,48 @@ async def configure_player(bot, context):
     default_cutoff = configurations.get(bot, __name__, key='max_cutoff')
     guild_id = context.guild.id
     changes = []
+    is_dj = data.has_custom_role(bot, __name__, 'dj', member=context.author)
+    is_mod = context.elevation > 0
 
     if 'threshold' in options:
+        if not is_dj:
+            raise CBException("You must be a DJ in order to change the length threshold.")
         threshold = options['threshold']
         data.add(bot, __name__, 'threshold', threshold, guild_id=guild_id)
         changes.append('Duration threshold set to {} seconds.'.format(threshold))
 
     if 'cutoff' in options:
+        if not is_dj:
+            raise CBException("You must be a DJ in order to change the length cutoff.")
         cutoff = options['cutoff']
         data.add(bot, __name__, 'cutoff', cutoff, guild_id=guild_id)
         changes.append('Cutoff set to {} seconds.'.format(cutoff))
 
     if 'djrole' in options:
+        if not is_mod:
+            raise CBException("You must be a bot moderator in order to change the DJ role.")
         dj_role = options['djrole']
         data.add_custom_role(bot, __name__, 'dj', dj_role)
         changes.append('Set the DJ role to {}.'.format(dj_role.mention))
 
     if 'channel' in options:
+        if not is_mod:
+            raise CBException("You must be a bot moderator in order to change the player channel.")
         text_channel = options['channel']
         data.add(bot, __name__, 'channel', text_channel.id, guild_id=guild_id)
         changes.append('Set the text channel restriction to {}.'.format(text_channel.mention))
 
     if 'switchcontrol' in options:
+        if not is_mod:
+            raise CBException("You must be a bot moderator in order to cycle control modes.")
         control = data.get(bot, __name__, 'control', guild_id=guild_id, default=Control.PARTIAL)
         control = 0 if control == len(Control) - 1 else control + 1
         data.add(bot, __name__, 'control', control, guild_id=guild_id)
         changes.append('Cycled the playlist permissions control mode.')
 
     if 'switchmode' in options:
+        if not is_mod:
+            raise CBException("You must be a bot moderator in order to cycle player modes.")
         mode = data.get(bot, __name__, 'mode', guild_id=guild_id, default=Modes.QUEUE)
         mode = 0 if mode == len(Modes) - 1 else mode + 1
         data.add(bot, __name__, 'mode', mode, guild_id=guild_id)
