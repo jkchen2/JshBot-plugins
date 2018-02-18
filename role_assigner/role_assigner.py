@@ -4,7 +4,7 @@ from jshbot import utilities, plugins, data, logger
 from jshbot.exceptions import ConfiguredBotException
 from jshbot.commands import Command, SubCommand, ArgTypes, Arg, Opt, Response
 
-__version__ = '0.1.1'
+__version__ = '0.1.2'
 CBException = ConfiguredBotException('Role assigner')
 uses_configuration = False
 
@@ -42,6 +42,13 @@ def get_commands(bot):
                 Arg('role name', argtype=ArgTypes.SPLIT, convert=utilities.RoleConverter()),
                 doc='Deletes the given roles.',
                 elevated_level=1, function=role_delete),
+            SubCommand(
+                Opt('verification'),
+                Arg('role name', argtype=ArgTypes.MERGED_OPTIONAL,
+                    convert=utilities.RoleConverter()),
+                doc='If self-assignable roles requires a role itself, '
+                    'it can be set or cleared with this command.',
+                elevated_level=1, function=role_verification),
             SubCommand(
                 Opt('list'),
                 Arg('role name', argtype=ArgTypes.MERGED_OPTIONAL,
@@ -86,6 +93,14 @@ async def role_toggle(bot, context):
 
 async def role_joinleave(bot, context):
     """Adds/removes the given role(s) to/from the member."""
+
+    # Check for a verified role
+    verified_role = data.get_custom_role(bot, __name__, 'verified', context.guild)
+    if verified_role:
+        if not data.has_custom_role(bot, __name__, 'verified', member=context.author):
+            raise CBException("You must have the role {} in order to self-assign roles.".format(
+                verified_role.mention))
+
     joining = context.id == 'join'
     available_role_ids = data.get(bot, __name__, 'roles', guild_id=context.guild.id, default=[])
     for role in context.arguments:
@@ -150,6 +165,18 @@ async def role_delete(bot, context):
         raise CBException("The bot is missing the `Manage Roles` permission.")
 
     return Response(embed=discord.Embed(description='Roles deleted.'))
+
+
+async def role_verification(bot, context):
+    """Sets or clears a verification role to allow self-assignment."""
+    role = context.arguments[0]
+    if role:
+        data.add_custom_role(bot, __name__, 'verified', role)
+        return Response(embed=discord.Embed(
+            description='Only users with the {} role can self-assign roles.'.format(role.mention)))
+    else:
+        data.remove_custom_role(bot, __name__, 'verified', context.guild)
+        return Response(embed=discord.Embed(description='Anybody can now self-assign roles.'))
 
 
 async def role_list(bot, context):
