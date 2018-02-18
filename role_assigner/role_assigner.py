@@ -4,7 +4,7 @@ from jshbot import utilities, plugins, data, logger
 from jshbot.exceptions import ConfiguredBotException
 from jshbot.commands import Command, SubCommand, ArgTypes, Arg, Opt, Response
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 CBException = ConfiguredBotException('Role assigner')
 uses_configuration = False
 
@@ -29,12 +29,27 @@ def get_commands(bot):
                 doc='Toggle self-assignable roles.',
                 elevated_level=1, function=role_toggle),
             SubCommand(
+                Opt('create'),
+                Opt('mentionable', optional=True),
+                Opt('hoisted', optional=True),
+                Opt('color', optional=True, attached='hex color',
+                    convert=utilities.HexColorConverter()),
+                Arg('role name', argtype=ArgTypes.MERGED),
+                doc='Creates roles and allows them to be self-assignable.',
+                elevated_level=1, function=role_create),
+            SubCommand(
+                Opt('delete'),
+                Arg('role name', argtype=ArgTypes.SPLIT, convert=utilities.RoleConverter()),
+                doc='Deletes the given roles.',
+                elevated_level=1, function=role_delete),
+            SubCommand(
                 Opt('list'),
-                doc='Lists available self-assignable roles.',
-                function=role_list)
-        ],
+                Arg('role name', argtype=ArgTypes.MERGED_OPTIONAL,
+                    convert=utilities.RoleConverter()),
+                doc='Lists available self-assignable roles, or members with the given role.',
+                function=role_list)],
         allow_direct=False,
-        description='Assigns or removes roles.')]
+        description='Assigns or removes roles.', category='user tools')]
 
 
 def _check_roles(bot, guild):
@@ -65,7 +80,7 @@ async def role_toggle(bot, context):
         added = data.list_data_toggle(bot, __name__, 'roles', role.id, guild_id=context.guild.id)
         changes.append('{}ed role {}'.format('Add' if added else 'Remov', role.mention))
 
-    embed = discord.Embed(title='Self-assignable role changes', description='\n'.join(changes))
+    embed = discord.Embed(title='Self-assignable role changes:', description='\n'.join(changes))
     return Response(embed=embed)
 
 
@@ -87,6 +102,7 @@ async def role_joinleave(bot, context):
         _check_roles(bot, context.guild)
         action = 'assign' if joining else 'remov'
         raise CBException("The role(s) could not be {}ed due to a hierarchy issue.".format(action))
+
     embed = discord.Embed(
         title='You have {} the role{}:'.format(
             'joined' if joining else 'left', '' if len(context.arguments) == 1 else 's'),
@@ -94,15 +110,81 @@ async def role_joinleave(bot, context):
     return Response(embed=embed)
 
 
+async def role_create(bot, context):
+    """Creates the given role."""
+    role_name = context.arguments[0]
+    guild_role_names = list(it.name.lower() for it in context.guild.roles)
+    if role_name.lower() in guild_role_names:
+        raise CBException("A similarly named role already exists.")
+    color = context.options.get('color', discord.Color.default())
+    hoisted, mentionable = 'hoisted' in context.options, 'mentionable' in context.options
+    try:
+        new_role = await context.guild.create_role(
+            name=role_name, color=color, hoist=hoisted, mentionable=mentionable,
+            reason='Created self-assigned role')
+    except discord.Forbidden:
+        raise CBException("The bot is missing the `Manage Roles` permission.")
+    data.list_data_append(
+        bot, __name__, 'roles', new_role.id, guild_id=context.guild.id, duplicates=False)
+
+    embed = discord.Embed(
+        title='Created a new self-assignable role:',
+        description='{}\n{}\n{}'.format(
+            new_role.mention,
+            'Hoisted' if hoisted else '',
+            'Mentionable' if mentionable else '').strip(),
+        color=color if 'color' in context.options else discord.Embed.Empty)
+    return Response(embed=embed)
+
+
+async def role_delete(bot, context):
+    """Deletes the given roles."""
+    available_role_ids = data.get(bot, __name__, 'roles', guild_id=context.guild.id, default=[])
+    for role in context.arguments:
+        if role.id not in available_role_ids:
+            raise CBException("The role {} is not self-assignable.".format(role.mention))
+    try:
+        for role in context.arguments:
+            await role.delete(reason='Deleted by {0} ({0.id})'.format(context.author))
+    except discord.Forbidden:
+        raise CBException("The bot is missing the `Manage Roles` permission.")
+
+    return Response(embed=discord.Embed(description='Roles deleted.'))
+
+
 async def role_list(bot, context):
     """Lists the available roles for self-assignment."""
-    available_roles = _check_roles(bot, context.guild)
-    if not available_roles:
-        raise CBException("There are no self-assignable roles available.")
-    embed = discord.Embed(
-        title='Self-assignable roles:',
-        description='\n'.join(it.mention for it in available_roles))
-    return Response(embed=embed)
+    if context.arguments[0]:  # List members that have this role
+        role = context.arguments[0]
+        if role.is_default():
+            raise CBException("Cannot list members with the @everyone role.")
+        if not role.members:
+            raise CBException("No members have the role {}.".format(role.mention))
+        elif len(role.members) > 80:
+            name_file = discord.File(
+                utilities.get_text_as_file('\n'.join(str(it) for it in role.members)),
+                filename='members.txt')
+            embed = discord.Embed(
+                description='{} members have this role.'.format(len(role.members)))
+            return Response(file=name_file, embed=embed)
+        else:
+            plural = len(role.members) > 1
+            return Response(embed=discord.Embed(
+                title='{} member{} {} this role:'.format(
+                    len(role.members), 's' if plural else '', 'have' if plural else 'has'),
+                description=', '.join(it.mention for it in role.members)))
+
+    else:  # List self-assignable roles
+        available_roles = _check_roles(bot, context.guild)
+        if not available_roles:
+            raise CBException("There are no self-assignable roles available.")
+
+        embed = discord.Embed(
+            title='Self-assignable roles:',
+            description='\n'.join(it.mention for it in available_roles))
+        embed.set_footer(text='To join a role, use {}role join'.format(
+            utilities.get_invoker(bot, guild=context.guild)))
+        return Response(embed=embed)
 
 
 async def bot_on_ready_boot(bot):
