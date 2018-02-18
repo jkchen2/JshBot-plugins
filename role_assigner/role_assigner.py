@@ -30,9 +30,9 @@ def get_commands(bot):
                 elevated_level=1, function=role_toggle),
             SubCommand(
                 Opt('create'),
-                Opt('mentionable', optional=True),
-                Opt('hoisted', optional=True),
-                Opt('color', optional=True, attached='hex color',
+                Opt('mentionable', optional=True, group='options'),
+                Opt('hoisted', optional=True, group='options'),
+                Opt('color', optional=True, attached='hex color', group='options',
                     convert=utilities.HexColorConverter()),
                 Arg('role name', argtype=ArgTypes.MERGED),
                 doc='Creates roles and allows them to be self-assignable.',
