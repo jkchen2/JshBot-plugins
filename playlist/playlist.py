@@ -239,7 +239,8 @@ class MusicPlayer():
         if ((self.voice_client.is_playing() and self.voice_client.source != self.source)
                 or self.guild.me not in self.voice_channel.members):
             logger.debug("update_state detected an unstopped instance. Stopping now.")
-            await self.stop()
+            await self.stop(
+                text="The player has been stopped due to a different audio source being in use.")
 
     async def set_new_message(self, channel, autoplay=False, track_index=None):
         if self.command_task:
@@ -407,7 +408,6 @@ class MusicPlayer():
             return
         elif not self.now_playing or self.now_playing.extra == self.satellite_data:
             return
-        logger.debug("Updating the satellite message!")
         self.satellite_data = extra = self.now_playing.extra
 
         embed = discord.Embed()
@@ -429,7 +429,7 @@ class MusicPlayer():
             embed.set_image(url=extra['thumbnail'])
 
         if 'artist_thumbnail' in extra:
-            emebd.set_thumbnail(url=extra['artist_thumbnail'])
+            embed.set_thumbnail(url=extra['artist_thumbnail'])
 
         await self.satellite_message.edit(embed=embed)
         
@@ -442,8 +442,7 @@ class MusicPlayer():
             int(self.volume * 100),
             ('Playlist', 'Queue')[self.mode],
             shuffle_text,
-            ('Public', 'Partially public', 'DJs only')[self.control]
-        )
+            ('Public', 'Partially public', 'DJs only')[self.control])
         self.embed.set_footer(text=footer_text)
 
     async def update_title(self):
@@ -602,6 +601,7 @@ class MusicPlayer():
             self.shuffle_stack.append(track_check.id)
             asyncio.ensure_future(self.play(track_index=new_track_index, skipped=use_skip))
         else:
+            logger.debug('_track_timer is moving on: %s', use_skip)
             asyncio.ensure_future(self.play(skipped=use_skip))
 
     def _get_delay(self):  # Gets track delay with cutoff
@@ -611,7 +611,10 @@ class MusicPlayer():
         else:
             duration = self.now_playing.duration
             use_skip = False
-        return (max(duration - self.progress, 0), use_skip)
+        temp = (max(duration - self.progress, 0), use_skip)
+        logger.debug('_get_delay got: %s', temp)
+        return temp
+        #return (max(duration - self.progress, 0), use_skip)
 
     async def play(self, track_index=None, skipped=False, wrap_track_numbers=True):
         if self.state in (States.LOADING, States.STOPPED):
@@ -707,8 +710,7 @@ class MusicPlayer():
                 downloader = YoutubeDL(options)
                 sound_file = await data.add_to_cache_ydl(self.bot, downloader, track.url)
             except Exception as e:  # Attempt to redownload from base url
-                logger.debug("Failed to download the track. Failsafe skipping...", e)
-                self.bot.extra = e
+                logger.debug("Failed to download the track. Failsafe skipping... %s", e)
                 self.notification = "Failed to download {}. Failsafe skipping...".format(
                     track.title)
                 self.state = States.PAUSED
@@ -751,7 +753,7 @@ class MusicPlayer():
         asyncio.ensure_future(self.update_interface())
         logger.debug("Player paused!")
 
-    async def stop(self):
+    async def stop(self, text="The player has been stopped."):
         logger.debug("Stopping the player!")
         self.state = States.STOPPED
         self.now_playing = None
@@ -767,16 +769,12 @@ class MusicPlayer():
             if self.state_check_task:
                 self.state_check_task.cancel()
         except Exception as e:
-            self.bot.extra = e
             logger.debug("Failed to stop some task. %s", e)
         try:
-            logger.debug("Attempting to delete things")
             asyncio.ensure_future(self.satellite_message.delete())
             asyncio.ensure_future(self.message.clear_reactions())
-            asyncio.ensure_future(self.message.edit(content='The player has stopped.', embed=None))
-            logger.debug("Things deleted!")
+            asyncio.ensure_future(self.message.edit(content=text, embed=None))
         except Exception as e:
-            self.bot.extra = e
             logger.warn("Failed to modify the original message %s", e)
             pass
 
@@ -865,7 +863,8 @@ class MusicPlayer():
                         asyncio.ensure_future(self.play(track_index=new_track_index))
 
                 elif command == valid_commands[3]:  # Stop player
-                    await self.stop()
+                    await self.stop(
+                        text="The player has been stopped by {}.".format(result[1].mention))
                     return
 
                 elif command == valid_commands[4]:  # Shuffle mode
@@ -964,6 +963,7 @@ class MusicPlayer():
                     asyncio.ensure_future(result[1].send(embed=help_embed))
 
         except Exception as e:
+            self.bot.extra = e
             logger.warn("Something bad happened. %s", e)
 
 
@@ -1126,7 +1126,7 @@ async def remove_track(bot, context):
     control = data.get(
         bot, __name__, 'control', guild_id=context.guild.id, default=Control.PARTIAL)
     track_info = tracklist[index]
-    if control == Control.DJS:
+    if control == Control.DJS and not is_dj:
         raise CBException("You must be a DJ to remove entries.", autodelete=autodelete)
     elif track_info.userid != context.author.id and not is_dj:
         raise CBException(
@@ -1360,7 +1360,7 @@ async def configure_player(bot, context):
 
     if 'djrole' in options:
         dj_role = options['djrole']
-        data.add_custom_role(bot, __name__, dj_role, 'dj')
+        data.add_custom_role(bot, __name__, 'dj', dj_role)
         changes.append('Set the DJ role to {}.'.format(dj_role.mention))
 
     if 'channel' in options:
@@ -1383,7 +1383,7 @@ async def configure_player(bot, context):
     # Format and display all settings
     threshold = data.get(bot, __name__, 'threshold', guild_id=guild_id, default=default_threshold)
     cutoff = data.get(bot, __name__, 'cutoff', guild_id=guild_id, default=default_cutoff)
-    dj_role = data.get_custom_role(bot, __name__, context.guild, 'dj')
+    dj_role = data.get_custom_role(bot, __name__, 'dj', context.guild)
     control = data.get(bot, __name__, 'control', guild_id=guild_id, default=Control.PARTIAL)
     mode = data.get(bot, __name__, 'mode', guild_id=guild_id, default=Modes.QUEUE)
     text_channel_id = data.get(bot, __name__, 'channel', guild_id=guild_id)
