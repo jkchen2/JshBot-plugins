@@ -365,7 +365,8 @@ def combine_images(bot, image_pairs, width, height):
     return image_bytes
 
 
-async def bot_on_ready_boot(bot):
+@plugins.listen_for('bot_on_ready_boot')
+async def create_client(bot):
     """Create a new wolframalpha client object and store in volatile data."""
     config = configurations.get(bot, __name__)
     client = wap.WolframAlphaEngine(config['api_key'], config['server'])
@@ -374,6 +375,3 @@ async def bot_on_ready_boot(bot):
     client.FormatTimeout = config['format_timeout']
     data.add(bot, __name__, 'client', client, volatile=True)
     data.add(bot, __name__, 'uses', {}, volatile=True)
-
-    permissions = {'embed_links': "Show query results as an embedded image."}
-    utilities.add_bot_permissions(bot, __name__, **permissions)

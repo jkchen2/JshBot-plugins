@@ -1183,18 +1183,12 @@ async def _tag_list_browser(bot, context, response, result, timed_out):
     await response.message.edit(embed=response.embed)
 
 
-async def bot_on_ready_boot(bot):
-    """Sets up the configuration globals"""
+@plugins.listen_for('bot_on_ready_boot')
+async def setup_globals(bot):
+    """Sets up the configuration globals."""
     global USE_GLOBAL_TAGS, REPLACE_COMMANDS
     USE_GLOBAL_TAGS = configurations.get(bot, __name__, 'global_tags')
     REPLACE_COMMANDS = configurations.get(bot, __name__, 'replace_commands')
-
-    permissions = {
-        'attach_files': "Allows tag exports to be uploaded as a text file.",
-        'connect': "Allows the bot to connect to voice channels.",
-        'speak': "Allows the usage of sound tags."
-    }
-    utilities.add_bot_permissions(bot, __name__, **permissions)
 
     # TODO: Properly fix this IDNAError issue. In the meantime, a workaround:
     # Forgive me, Father, for I have sinned

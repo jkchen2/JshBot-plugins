@@ -1367,7 +1367,9 @@ async def _get_static_data(bot):
     return (champions, spells)
 
 
-async def bot_on_ready_boot(bot):
+@plugins.listen_for('bot_on_ready_boot')
+async def setup_client(bot):
+    """Sets up the client and gets the LoL emojis."""
     # Load champion/spell emojis
     global CHAMPION_EMOJIS, SPELL_EMOJIS, BDT_EMOJIS, WATCHER, CHAMPIONS, SPELLS
     emoji_file_location = utilities.get_plugin_file(bot, 'lol_emojis.json', safe=False)

@@ -526,7 +526,8 @@ async def _get_buffered_donation_stats(bot):
     return donation_stats
 
 
-async def bot_on_ready_boot(bot):
+@plugins.listen_for('bot_on_ready_boot')
+async def update_schedule_loop(bot):
     """Constantly updates the schedule data."""
     use_plugin = configurations.get(bot, __name__, key='enable')
     while use_plugin:

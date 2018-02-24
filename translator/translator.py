@@ -8,7 +8,6 @@ from jshbot.commands import Command, SubCommand, Shortcut, ArgTypes, Arg, Opt, R
 __version__ = '0.1.0'
 CBException = ConfiguredBotException('Translator')
 uses_configuration = False
-LANGUAGE_LIST = None
 TRANSLATOR = googletrans.Translator()
 LANGUAGE_LINK = (
     '[Click here for a list of supported languages.]'
@@ -71,6 +70,7 @@ async def translate(bot, context):
         else:
             destination = data.get(
                 bot, __name__, 'default', guild_id=context.guild.id, default='en')
+
     try:
         result = await utilities.future(
             TRANSLATOR.translate, context.arguments[0], src=source, dest=destination)
@@ -90,8 +90,3 @@ async def translate(bot, context):
     embed.add_field(name=full_source, value=context.arguments[0], inline=False)
     embed.add_field(name=full_destination, value=result.text, inline=False)
     return Response(embed=embed)
-
-
-async def bot_on_ready_boot(bot):
-    global LANGUAGE_LIST
-    LANGUAGE_LIST = configurations.get(bot, __name__, extra='languages', extension='json')

@@ -94,7 +94,8 @@ async def get_response(bot, context):
     return Response(content="Bot updated.")
 
 
-async def bot_on_ready_boot(bot):
+@plugins.listen_for('bot_on_ready_boot')
+async def set_status_on_boot(bot):
     """Checks to see if the status was set previously."""
     previous_status = data.get(bot, __name__, 'status')
     if previous_status:

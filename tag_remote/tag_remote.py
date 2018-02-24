@@ -206,17 +206,22 @@ async def _delete_session(bot, guild):
         await utilities.stop_audio(bot, guild)
 
 
-async def bot_on_ready_boot(bot):
+@plugins.permissions_spawner
+def setup_permissions(bot):
+    return { 'manage_webhooks': "Allows tags to be called by webhook." }
+
+
+@plugins.listen_for('bot_on_ready_boot')
+async def setup_globals(bot):
     global WEBHOOK_SET, TAG_CONVERTER
     TAG_CONVERTER = bot.plugins['tags.py'].TagConverter(
         apply_checks=True, voice_channel_bypass=True)
     WEBHOOK_SET = set(data.get(bot, __name__, 'webhooks', default=[]))
-    permissions = { 'manage_webhooks': "Allows tags to be called by webhook." }
-    utilities.add_bot_permissions(bot, __name__, **permissions)
 
 
-async def on_message(bot, message):
-    """Reads webhook messages."""
+@plugins.listen_for('on_message')
+async def check_webhook_messages(bot, message):
+    """Reads webhook messages and calls tags if necessary."""
     if message.author.id in WEBHOOK_SET:
         session_data = data.get(bot, __name__, 'data', guild_id=message.guild.id)
         voice_channel = data.get_channel(bot, session_data['voice_channel'], guild=message.guild)

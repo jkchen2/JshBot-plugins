@@ -17,8 +17,8 @@ CBException = ConfiguredBotException('Character creator')
 uses_configuration = True
 
 DATA_VERSION = 2
-data_channel = None
-data_channel_webhook_ids = []
+DATA_CHANNEL = None
+DATA_CHANNEL_WEBHOOK_IDS = []
 COMMON_ATTRIBUTES = ['Species', 'Height', 'Age', 'Gender', 'Sexuality']
 CHARACTER_TYPES = {
     'fursona': ['A fursona', 'Fursona'],
@@ -95,7 +95,7 @@ def get_commands(bot):
                 Arg('user', convert=utilities.MemberConverter()),
                 Arg('character name', argtype=ArgTypes.MERGED),
                 doc='Forcibly removes the given character.',
-                elevated_level=1, function=character_forceremove),
+                elevated_level=3, function=character_forceremove),
             SubCommand(
                 Opt('user', attached='owner name', optional=True,
                     convert=utilities.MemberConverter(server_only=False),
@@ -210,7 +210,7 @@ def _valid_url(url):
 
 async def _create_session(bot, owner, editing=None):
     """Creates a session for character creation or editing"""
-    webhook = await data_channel.create_webhook(name='ready:{}'.format(owner.id))
+    webhook = await DATA_CHANNEL.create_webhook(name='ready:{}'.format(owner.id))
 
     # Upload data as a single file
     cursor = data.db_select(
@@ -232,8 +232,8 @@ async def _create_session(bot, owner, editing=None):
     data.add(bot, __name__, 'stage', 0, user_id=webhook.id, volatile=True)
 
     # Add webhook ID to global IDs
-    global data_channel_webhook_ids
-    data_channel_webhook_ids.append(webhook.id)
+    global DATA_CHANNEL_WEBHOOK_IDS
+    DATA_CHANNEL_WEBHOOK_IDS.append(webhook.id)
 
     # Send the owner the link
     embed = discord.Embed(
@@ -610,13 +610,13 @@ async def character_search(bot, context):
     cursor = data.db_select(
         bot, from_arg='characters', where_arg='tags @> %s',
         input_args=[tags], additional='ORDER BY clean_name ASC')
-    character_list = cursor.fetchall() if cursor else []
-    if not character_list:
+    character_listing = cursor.fetchall() if cursor else []
+    if not character_listing:
         raise CBException("No characters found matching those tags.")
     embed = discord.Embed(
         title=':book: Character search', description='{} character{} matching: #{}'.format(
-            len(character_list), '' if len(character_list) == 1 else 's', ' #'.join(tags)))
-    state_data = [0, character_list]
+            len(character_listing), '' if len(character_listing) == 1 else 's', ' #'.join(tags)))
+    state_data = [0, character_listing]
     return Response(
         embed=_build_browser_menu(bot, embed, *state_data),
         message_type=MessageTypes.INTERACTIVE,
@@ -633,12 +633,12 @@ def _character_one_liner(bot, character):
         character.name, character_type, owner if owner else 'Unknown')
 
 
-def _build_browser_menu(bot, embed, page_index, character_list):
+def _build_browser_menu(bot, embed, page_index, character_listing):
     """Builds a browser page given the index and character list."""
     embed.clear_fields()
 
     # At most, 10 entries per page
-    characters = character_list[10*page_index:10*page_index + 10]
+    characters = character_listing[10*page_index:10*page_index + 10]
     search_letter = characters[0].clean_name[0]
     search_letter_names = []
     for character in characters:
@@ -658,7 +658,7 @@ def _build_browser_menu(bot, embed, page_index, character_list):
     embed.add_field(
         name=search_letter.upper(), value='\n'.join(search_letter_names), inline=False)
 
-    total_pages = int((len(character_list) - 1) / 10 + 1)
+    total_pages = int((len(character_listing) - 1) / 10 + 1)
     embed.add_field(
         name='\u200b', value='Page [ {} / {} ]'.format(page_index + 1, total_pages), inline=False)
     return embed
@@ -678,15 +678,15 @@ async def _browser_menu(bot, cotext, response, result, timed_out):
 
 async def character_browse(bot, context):
     """Browses a list of all characters."""
-    character_list = data.db_select(
+    character_listing = data.db_select(
         bot, from_arg='characters', additional='ORDER BY clean_name ASC').fetchall()
-    if not character_list:
+    if not character_listing:
         raise CBException("There are no characters in the database.")
     page_index = 0
     if context.arguments[0]:
         search = context.arguments[0]
         closest_index = 0
-        for index, character in enumerate(character_list):
+        for index, character in enumerate(character_listing):
             if search <= character.clean_name:
                 closest_index = index
             else:
@@ -694,8 +694,8 @@ async def character_browse(bot, context):
         page_index = int(closest_index / 10)  # 10 entries per page
     embed = discord.Embed(
         title=':book: Character browser', description='{} total character{}'.format(
-            len(character_list), '' if len(character_list) == 1 else 's'))
-    state_data = [page_index, character_list]
+            len(character_listing), '' if len(character_listing) == 1 else 's'))
+    state_data = [page_index, character_listing]
     return Response(
         embed=_build_browser_menu(bot, embed, *state_data),
         message_type=MessageTypes.INTERACTIVE,
@@ -822,20 +822,21 @@ async def _clear_webhook(bot, webhook_id):
         return False
 
 
-async def on_message(bot, message):
-    """Intercepts messages to the data channel.
+@plugins.listen_for('on_message')
+async def check_webhook_messages(bot, message):
+    """Intercepts webhook messages to the data channel.
     
     There are 3 separate stages:
     0 - Starting stage (webhook exists)
     1 - User has submitted the file, edit webhook name with return code
     2 - User acknowledges result, requests that the webhook be deleted
     """
-    if message.channel != data_channel:
+    if message.channel != DATA_CHANNEL:
         return
 
     # Check for valid webhook messages
     webhook_id = message.author.id
-    if webhook_id not in data_channel_webhook_ids:
+    if webhook_id not in DATA_CHANNEL_WEBHOOK_IDS:
         return
 
     stage = data.get(bot, __name__, 'stage', user_id=webhook_id, volatile=True)
@@ -862,22 +863,24 @@ async def on_message(bot, message):
 
         logger.warn("Webhook state desynchronization detected.")
         await _clear_webhook(bot, webhook_id)
-        webhooks = await data_channel.webhooks()
+        webhooks = await DATA_CHANNEL.webhooks()
         for webhook in webhooks:  # In case the webhook ID was invalid
             if webhook.id == webhook_id:
                 await webhook.delete()
                 break
 
 
-async def bot_on_ready_boot(bot):
-    """Sets up the data_channel global"""
-    global data_channel
-    data_channel = data.get_channel(bot, configurations.get(bot, __name__, key='data_channel'))
-    if not data_channel:
-        raise CBException("Failed to obtain data channel.", error_type=ErrorTypes.STARTUP)
+@plugins.listen_for('bot_on_ready_boot')
+async def setup_globals(bot):
+    """Sets up the DATA_CHANNEL global"""
+    global DATA_CHANNEL
+    DATA_CHANNEL = data.get_channel(bot, configurations.get(bot, __name__, key='data_channel'))
+    if not DATA_CHANNEL:
+        logger.warn("Failed to find the data channel. Defaulting to the upload channel.")
+        DATA_CHANNEL = data.get_channel(bot, configurations.get(bot, 'core', key='upload_channel'))
 
     # Clear any webhooks (debug)
-    webhooks = await data_channel.webhooks()
+    webhooks = await DATA_CHANNEL.webhooks()
     for webhook in webhooks:
         logger.debug("Deleting webhook %s", webhook)
         await webhook.delete()

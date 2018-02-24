@@ -107,10 +107,8 @@ async def role_joinleave(bot, context):
         if role.id not in available_role_ids:
             raise CBException("The role {} is not self-assignable.".format(role.mention))
     try:
-        if joining:
-            await context.author.add_roles(*context.arguments, reason="Self-assignable role")
-        else:
-            await context.author.remove_roles(*context.arguments, reason="Self-assignable role")
+        action_function = context.author.add_roles if joining else context.author.remove_roles
+        await action_function(*context.arguments, reason="Self-assignable role")
     except discord.Forbidden:
         if not context.guild.me.guild_permissions.manage_roles:
             raise CBException("The bot is missing the `Manage Roles` permission.")
@@ -214,6 +212,6 @@ async def role_list(bot, context):
         return Response(embed=embed)
 
 
-async def bot_on_ready_boot(bot):
-    permissions = { 'manage_roles': 'Allows for self-assignable roles.' }
-    utilities.add_bot_permissions(bot, __name__, **permissions)
+@plugins.permissions_spawner
+def setup_permissions(bot):
+    return { 'manage_roles': 'Allows for self-assignable roles.' }

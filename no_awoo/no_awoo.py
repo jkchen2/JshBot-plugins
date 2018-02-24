@@ -315,13 +315,15 @@ async def _violation_notification(bot, message, awoo_tier, send_message=True):
         channel_violation_data['sent_tier'] += 1
 
 
-async def on_message(bot, message):
+@plugins.listen_for('on_message')
+async def check_awoo_messages(bot, message):
     awoo_tier = _awoo_check(bot, message)
     if awoo_tier:  # Awoo detected
         await _violation_notification(bot, message, awoo_tier)
 
 
-async def on_message_edit(bot, message_before, message_after):
+@plugins.listen_for('on_message_edit')
+async def check_awoo_edits(bot, message_before, message_after):
     if _awoo_check(bot, message_before):  # Prevent a little edit abuse
         return
     awoo_tier = _awoo_check(bot, message_after)
@@ -329,7 +331,8 @@ async def on_message_edit(bot, message_before, message_after):
         await _violation_notification(bot, message_after, awoo_tier, send_message=False)
 
 
-async def bot_on_ready_boot(bot):
+@plugins.listen_for('bot_on_ready_boot')
+async def setup_globals(bot):
     global statements, substitutions, fine
     statements = configurations.get(bot, __name__, extra='statements', extension='json')
     substitutions = configurations.get(bot, __name__, extra='substitutions', extension='json')

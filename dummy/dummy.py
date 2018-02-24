@@ -315,22 +315,46 @@ async def active_marquee(bot, context, response):
     await response.message.edit(content=response.extra)
 
 
-# If necessary, standard client events can be defined here, and they will be
-#   called appropriately. Be sure to include the bot argument first!
+@plugins.permissions_spawner
+def setup_permissions(bot):
+    """Use this decorator to return a dictionary of required permissions."""
+    return {
+        'read_messages': "This is a dummy additional permission.",
+        'change_nickname': "This allows the bot to change its own nickname."
+    }
 
-async def on_message_edit(bot, before, after):
+
+# If necessary, events can be listened for using the plugins.listen_for decorator.
+#   These events include everything discord.py provides (see the event reference in the docs).
+#
+#   Additionally, the bot provides a few extra events:
+#   - bot_on_command (context):
+#       A command is about to be called (the context has been built)
+#   - bot_on_response (response, context):
+#       A command has been executed, and a response was created
+#   - bot_on_user_ratelimit (author):
+#       The author has issued too many commands (global command ratelimit exceeded)
+#   - bot_on_exception (error, message):
+#       A BotException was caught
+#   - bot_on_discord_exception (error, message):
+#       A discord.py exception caught (likely messages were too long)
+#   - bot_on_uncaught_exception (error, message):
+#       An uncaught exception was raised (internal error)
+#   - bot_on_ready_boot:
+#       The bot has started up for the first time (or the plugin was reloaded)
+#
+#   Be sure to include the bot argument first for these event functions!
+
+
+@plugins.listen_for('on_message_edit')
+async def show_edits(bot, before, after):
     if (before.author != bot.user and
             configurations.get(bot, __name__, key='show_edited_messages')):
         logger.info("Somebody edited their message from '{0}' to '{1}'.".format(
             before.content, after.content))
 
 
-async def bot_on_ready_boot(bot):
+@plugins.listen_for('bot_on_ready_boot')
+async def demo_on_boot(bot):
     """This is called only once every time the bot is started (or reloaded)."""
-    # Use this to set up additonal permissions for the plugin
-    logger.info("bot_on_ready_boot was called from dummy.py!")
-    permissions = {
-        'read_messages': "This is a dummy additional permission.",
-        'change_nickname': "This allows the bot to change its own nickname."
-    }
-    utilities.add_bot_permissions(bot, __name__, **permissions)
+    logger.info("demo_on_boot was called from dummy.py!")
