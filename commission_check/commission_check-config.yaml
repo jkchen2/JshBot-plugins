@@ -1,0 +1,2 @@
+# Default amount of time that a user needs to wait between advertisement posts (seconds)
+default_cooldown: 86400
