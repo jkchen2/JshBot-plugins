@@ -7,7 +7,6 @@ import math
 import urllib
 import json
 import io
-
 import discord
 
 from enum import Enum
@@ -49,7 +48,7 @@ class SummonerConverter():
     async def __call__(self, bot, message, value, *a):
         if not value:
             raise CBException("Summoner name must not be blank.")
-        if isinstance(message.channel, discord.DMChannel):
+        if isinstance(message.channel, discord.abc.PrivateChannel):
             region = 'na'
         else:
             region = data.get(bot, __name__, 'region', guild_id=message.guild.id, default='na')
