@@ -83,8 +83,8 @@ async def translate(bot, context):
     except Exception as e:
         raise CBException("Failed to translate the text.", e)
 
-    full_source = googletrans.constants.LANGUAGES[result.src].title()
-    full_destination = googletrans.constants.LANGUAGES[result.dest].title()
+    full_source = googletrans.constants.LANGUAGES[result.src.lower()].title()
+    full_destination = googletrans.constants.LANGUAGES[result.dest.lower()].title()
     embed = discord.Embed(
         title=':arrows_counterclockwise: Google Translate', color=discord.Color(0x3b88c3))
     embed.add_field(name=full_source, value=context.arguments[0], inline=False)
