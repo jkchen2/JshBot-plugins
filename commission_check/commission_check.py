@@ -7,7 +7,7 @@ from jshbot import utilities, plugins, configurations, data, logger
 from jshbot.exceptions import ConfiguredBotException
 from jshbot.commands import Command, SubCommand, Shortcut, ArgTypes, Arg, Opt, Response
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 CBException = ConfiguredBotException('Commission channel checker')
 uses_configuration = True
 
@@ -81,7 +81,10 @@ async def _get_advertisement_data(bot, guild, ignore_user_id=None):
     whitelist = data.get(bot, __name__, 'whitelist', guild_id=guild.id, default=[])
     async for message in channel.history(limit=100):
         author_id = message.author.id
-        if not message.author.bot and author_id not in whitelist:
+        if (not message.author.bot and
+                message.type is discord.MessageType.default and
+                not message.pinned and
+                author_id not in whitelist):
             if author_id in advertisement_data:
                 logger.warn('Deleting previously undetected message %s', message.id)
                 await message.delete()
@@ -210,16 +213,17 @@ async def check_commission_advertisement(bot, message):
 
     advertisement_data[author_id] = message
     notification = (
-        'You have posted an advertisement in the commissions channel. '
-        '**Remember that there can only be one message per advertisement**.\n\n'
+        'Hello! Your advertisement post in the commissions channel has recorded. '
+        '**Please remember that there can only be one message per advertisement**.\n\n'
         'If you want to revise your advertisement [(like adding an image)]'
         '(https://imgur.com/a/qXB2v "Click here for a guide on how to add an image '
-        'with a message"), you can delete your advertisement and submit it again. '
-        '**This only works within the next 10 minutes and if nobody else has '
-        'posted another advertisement after yours.**\n\nYou are eligible to post a '
+        'with a message"), you can delete your advertisement and submit it again, '
+        'although this only works within the next 10 minutes and if nobody else has '
+        'posted another advertisement after yours.\n\nYou are eligible to post a '
         'new advertisement after the waiting period of {}. When you post a new '
         'advertisement, your previous one will be automatically deleted.\n\n'
-        'You will be notified when you are eligible to make a new post.').format(
+        'For convenience, you will be notified when you are eligible to make '
+        'a new post.').format(
             utilities.get_time_string(cooldown, text=True, full=True))
     await message.author.send(embed=discord.Embed(
         colour=discord.Colour(0x77b255), description=notification))
@@ -255,7 +259,7 @@ async def check_recently_deleted(bot, message):
             bot, __name__, search='c_ad_{}'.format(message.guild.id),
             destination='u{}'.format(author_id))
         notification = (
-            'You have deleted your last advertisement within 10 minutes of posting it '
+            'Heads up, you have deleted your last advertisement within 10 minutes of posting it '
             '(and nobody else posted an advertisement during that time).\n\n'
             'You can submit a revised advertisement now if you wish.')
         await message.author.send(embed=discord.Embed(description=notification))
