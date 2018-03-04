@@ -1591,7 +1591,7 @@ REGION_EMOJIS = {
     'euw':  ':flag_eu:',
     'kr':   ':flag_kr:',
     'lan':  ':flag_mx:',
-    'las':  ':flag_co:',
+    'las':  ':flag_cl:',
     'na':   ':flag_us:',
     'oce':  ':flag_au:',
     'ru':   ':flag_ru:',
