@@ -875,9 +875,7 @@ async def _get_raw_match(bot, match_id, summoner):
                 match_data = entry.data
                 break
         else:  # Not found - get match and cache it
-            match_data = await future(
-                WATCHER.match.by_id, PLATFORMS[summoner.region],
-                match_id, for_account_id=summoner.account_id)
+            match_data = await future(WATCHER.match.by_id, PLATFORMS[summoner.region], match_id)
             _cache_raw_match(bot, match_data, summoner)
 
         return match_data
