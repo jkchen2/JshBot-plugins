@@ -104,7 +104,7 @@ async def commission_whitelist(bot, context):
         added = data.list_data_toggle(
             bot, __name__, 'whitelist', context.arguments[0], guild_id=context.guild.id)
         return Response('{}ed user {} the commission channel rules whitelist.'.format(
-            *(('Add', 'to') if added else ('Remove', 'from'))))
+            *(('Add', 'to') if added else ('Remov', 'from'))))
     else:  # List users
         users = data.get(bot, __name__, 'whitelist', guild_id=context.guild.id)
         if not users:
@@ -213,7 +213,7 @@ async def check_commission_advertisement(bot, message):
 
     advertisement_data[author_id] = message
     notification = (
-        'Hello! Your advertisement post in the commissions channel has recorded. '
+        'Hello! Your advertisement post in the commissions channel has been recorded. '
         '**Please remember that there can only be one message per advertisement**.\n\n'
         'If you want to revise your advertisement [(like adding an image)]'
         '(https://imgur.com/a/qXB2v "Click here for a guide on how to add an image '
