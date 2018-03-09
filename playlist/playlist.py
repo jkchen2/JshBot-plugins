@@ -473,11 +473,11 @@ class MusicPlayer():
 
     async def update_interface(self, notification_text='', ignore_ratelimit=False):
         """Calls the other functions to update the main interface."""
+        await self.update_notification(text=notification_text)
         if not ignore_ratelimit and time.time() - self.last_interface_update < 1:
             return
         await self.update_title()
         await self.update_info()
-        await self.update_notification(text=notification_text)
         await self.update_footer()
         await self.message.edit(content=None, embed=self.embed)
         self.last_interface_update = time.time()
