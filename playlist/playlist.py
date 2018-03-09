@@ -1038,7 +1038,7 @@ class MusicPlayer():
                             start_delta = 1 if self.now_playing else 0
                             delta = start_delta if use_skip else (0 if use_repeat else -1)
                         else:
-                            delta = -1 if use_skip else 0
+                            delta = 0 if use_skip else -1
 
                         if self.mode == Modes.PLAYLIST and self.shuffle and delta != 0:
                             last_track = None
@@ -1667,6 +1667,7 @@ async def configure_player(bot, context):
     dj_role = data.get_custom_role(bot, __name__, 'dj', context.guild)
     control = data.get(bot, __name__, 'control', guild_id=guild_id, default=Control.PARTIAL)
     mode = data.get(bot, __name__, 'mode', guild_id=guild_id, default=Modes.QUEUE)
+    chat_mirroring = data.get(bot, __name__, 'mirror_chat', guild_id=guild_id, default=False)
     text_channel_id = data.get(bot, __name__, 'channel', guild_id=guild_id)
     text_channel = context.guild.get_channel(text_channel_id)
 
@@ -1674,7 +1675,7 @@ async def configure_player(bot, context):
         title='Player configuration', description=(
             'Text channel: {}\nTotal track limit: {}\n'
             'User track limit: {}\nThreshold: {}\nCutoff: {}\n'
-            'DJ Role: {}\nControl: {}\nPlayer mode: {}\n'.format(
+            'DJ Role: {}\nControl: {}\nPlayer mode: {}\nChat mirroring: {}'.format(
                 text_channel.mention if text_channel else 'None',
                 '{} tracks'.format(total_track_limit),
                 '{} tracks'.format(user_track_limit),
@@ -1682,7 +1683,8 @@ async def configure_player(bot, context):
                 '{} seconds'.format(cutoff),
                 dj_role.mention if dj_role else 'None',
                 ('Public', 'Partially public', 'DJs only')[control],
-                ('Repeating playlist', 'Single play queue')[mode])
+                ('Repeating playlist', 'Single play queue')[mode],
+                chat_mirroring)
         )
     )
 
