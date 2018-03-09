@@ -63,7 +63,7 @@ async def get_response(bot, context):
             text = configurations.get(bot, __name__, extra='statuses', extension='txt')
             status = random.choice(text.splitlines()).rstrip()
             try:
-                await bot.change_presence(game=discord.Game(name=status))
+                await bot.change_presence(activity=discord.Game(name=status))
             except Exception as e:
                 raise CBException("Failed to update the status.", e=e)
 
@@ -83,7 +83,11 @@ async def get_response(bot, context):
 
     elif context.index == 3:  # Change status
         try:
-            await bot.change_presence(game=discord.Game(name=context.arguments[0]))
+            if context.arguments[0]:
+                activity = discord.Game(name=context.arguments[0])
+            else:
+                activity = None
+            await bot.change_presence(activity=activity)
             data.add(bot, __name__, 'status', context.arguments[0])
         except Exception as e:
             raise CBException("Failed to update the status.", e=e)
@@ -99,5 +103,5 @@ async def set_status_on_boot(bot):
     """Checks to see if the status was set previously."""
     previous_status = data.get(bot, __name__, 'status')
     if previous_status:
-        await bot.change_presence(game=discord.Game(name=previous_status))
+        await bot.change_presence(activity=discord.Game(name=previous_status))
         logger.info("Detected old status - setting it now!")
