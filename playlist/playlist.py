@@ -9,7 +9,7 @@ import yaml
 import discord
 
 from urllib.parse import urlparse
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from psycopg2.extras import Json
 
 from enum import Enum, IntEnum
@@ -21,7 +21,7 @@ from jshbot.exceptions import ConfiguredBotException, BotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.3.4'
+__version__ = '0.3.5'
 CBException = ConfiguredBotException('Music playlist')
 uses_configuration = True
 
@@ -38,8 +38,10 @@ class Control(IntEnum):
 @plugins.command_spawner
 def get_commands(bot):
 
-    default_threshold = configurations.get(bot, __name__, key='max_threshold')
-    default_cutoff = configurations.get(bot, __name__, key='max_cutoff')
+    max_threshold = configurations.get(bot, __name__, key='max_threshold')
+    max_cutoff = configurations.get(bot, __name__, key='max_cutoff')
+    max_user_track_limit = configurations.get(bot, __name__, key='max_user_track_limit')
+    max_total_track_limit = configurations.get(bot, __name__, key='max_total_track_limit')
 
     async def check_whitelist(bot, context):
         config = configurations.get(bot, __name__)
@@ -76,20 +78,30 @@ def get_commands(bot):
                 Opt('volume'),
                 Arg('percent', quotes_recommended=False,
                     convert=utilities.PercentageConverter(),
-                    check=lambda b, m, v, *a: 0.01 <= v <= 2.0,
-                    check_error='Must be between 1% and 200% inclusive.'),
+                    check=lambda b, m, v, *a: 0.01 <= v <= 1.0,
+                    check_error='Must be between 1% and 100% inclusive.'),
                 doc='Sets the player volume to the given percentage.',
                 function=set_volume),
             SubCommand(
                 Opt('configure'),
                 Opt('threshold', attached='seconds', optional=True, group='options',
                     quotes_recommended=False, convert=int,
-                    check=lambda b, m, v, *a: 10 <= v <= default_threshold,
-                    check_error='Must be between 10 and {} seconds.'.format(default_threshold)),
+                    check=lambda b, m, v, *a: 10 <= v <= max_threshold,
+                    check_error='Must be between 10 and {} seconds.'.format(max_threshold)),
                 Opt('cutoff', attached='seconds', optional=True, group='options',
                     quotes_recommended=False, convert=int,
-                    check=lambda b, m, v, *a: 10 <= v <= default_cutoff,
-                    check_error='Must be between 10 and {} seconds.'.format(default_cutoff)),
+                    check=lambda b, m, v, *a: 10 <= v <= max_cutoff,
+                    check_error='Must be between 10 and {} seconds.'.format(max_cutoff)),
+                Opt('usertracks', attached='limit', optional=True, group='options',
+                    quotes_recommended=False, convert=int,
+                    check=lambda b, m, v, *a: 0 <= v <= max_user_track_limit,
+                    check_error='Must be between 0 and {}.'.format(max_user_track_limit),
+                    doc='Limits the number of tracks users can add to the player. 0 for no limit'),
+                Opt('totaltracks', attached='limit', optional=True, group='options',
+                    quotes_recommended=False, convert=int,
+                    check=lambda b, m, v, *a: 0 <= v <= max_total_track_limit,
+                    check_error='Must be between 0 and {}.'.format(max_total_track_limit),
+                    doc='Limits the total number of tracks for the player. 0 for no limit'),
                 Opt('djrole', attached='role', optional=True, group='options',
                     convert=utilities.RoleConverter()),
                 Opt('channel', attached='text channel', optional=True, group='options',
@@ -100,6 +112,8 @@ def get_commands(bot):
                     doc='Switches between DJ only, partial, and public control types.'),
                 Opt('switchmode', optional=True, group='options',
                     doc='Switches between repeating playlist and single play queue mode.'),
+                Opt('mirrorchat', optional=True, group='options',
+                    doc='Mirrors the last 5 chat messages to a message above the player.'),
                 doc='Configures the music player properties.',
                 function=configure_player),
             SubCommand(Opt('clear'), doc='Clears the playlist.', function=clear_playlist),
@@ -148,6 +162,11 @@ class MusicPlayer():
         self.message = None  # Set later
         self.satellite_message = None
         self.satellite_data = None
+        self.mirror_message = None
+        self.mirror_chats = None
+        self.mirror_last_notification = None
+        self.mirror_notifications = deque(maxlen=5)
+        self.mirror_chats = deque(maxlen=10)
 
         # Update tasks
         self.timer_task = None  # Player timer
@@ -204,6 +223,8 @@ class MusicPlayer():
             self.bot, __name__, 'mode', guild_id=guild_id, default=Modes.QUEUE)
         self.shuffle = data.get(
             self.bot, __name__, 'shuffle', guild_id=guild_id, default=Modes.QUEUE)
+        self.mirror_chat = data.get(
+            self.bot, __name__, 'mirror_chat', guild_id=guild_id, default=False)
 
         self.volume = data.get(self.bot, __name__, 'volume', guild_id=guild_id, default=1.0)
         if self.source:
@@ -239,7 +260,7 @@ class MusicPlayer():
                 raise CBException("Autoplay failed.")
             await asyncio.sleep(0.5)
             safety_timeout += 0.5
-        asyncio.ensure_future(self.play(track_index=track_index))
+        asyncio.ensure_future(self.play(track_index=track_index, author=self.author))
         logger.debug("Autoplay finished")
 
     def update_tracklist(self):
@@ -255,7 +276,7 @@ class MusicPlayer():
             await self.stop(
                 text="The player has been stopped due to a different audio source being in use.")
 
-    async def set_new_message(self, channel, autoplay=False, track_index=None):
+    async def set_new_message(self, message, autoplay=False, track_index=None):
         """Bumps up the player interface to the bottom of the channel."""
         if self.command_task:
             self.command_task.cancel()
@@ -263,14 +284,18 @@ class MusicPlayer():
             self.progress_task.cancel()
         if self.state_check_task:
             self.state_check_task.cancel()
+        if self.chat_mirror_task:
+            self.chat_mirror_task.cancel()
         if self.message:
             try:
                 await self.message.delete()
                 await self.satellite_message.delete()
+                await self.mirror_message.delete()
             except Exception as e:
                 logger.warn("Couldn't delete original messages: %s", e)
         
-        self.channel = channel
+        self.channel = message.channel
+        self.author = message.author
         self.satellite_data = None  # Force update
         asyncio.ensure_future(self._build_interface(resume=self.state == States.PLAYING))
         if autoplay:
@@ -278,8 +303,10 @@ class MusicPlayer():
                 self._autoplay(track_index=track_index))
 
     async def _build_interface(self, resume=False):
+        """Sets up player messages and the main interface structure."""
         self.state = States.LOADING
         self.satellite_message = await self.channel.send(embed=discord.Embed())
+        self.mirror_message = await self.channel.send(embed=discord.Embed())
         embed = discord.Embed(colour=discord.Colour(0xffab00))
         embed.add_field(  # Title
             name=':arrows_counterclockwise: **[]**',
@@ -293,19 +320,21 @@ class MusicPlayer():
         self.command_task = asyncio.ensure_future(self._command_listener(resume=resume))
 
     def _build_hyperlink(self, track):
-        title = track.title
+        title = track.title.replace('`', '')
         if len(title) > 40:
             title = title[:40] + ' **...**'
-        return '[{}]({} "{} (added by {})")'.format(
-            title, track.url, track.title, data.get_member(self.bot, track.userid))
+        else:
+            title = title
+        return '[{0}]({1} "{0} (added by {2})")'.format(
+            title, track.url, data.get_member(self.bot, track.userid))
 
-    # Refreshes the progress bar
     async def _progress_loop(self):
+        """Refreshes the progress bar."""
         await asyncio.sleep(5)
         while True:
             await self.update_state()
             if self.state == States.PLAYING:
-                self.update_listeners()
+                self.update_listeners(update_interface=False)
                 if time.time() - self.last_interface_update >= 4:
                     asyncio.ensure_future(self.update_interface())
                 asyncio.ensure_future(self.update_satellite())
@@ -317,10 +346,36 @@ class MusicPlayer():
                 logger.warn("Progress loop wasn't cancelled for some reason. Stopping loop...")
                 return
 
-    # Checks the state of members in the voice channel
+    async def _chat_mirror_loop(self):
+        """Mirrors chat messages after 10 seconds."""
+
+        async def _delete_and_update(message):
+            await asyncio.sleep(10.5)
+            if self.state == States.STOPPED:
+                return
+            try:
+                await message.delete()
+            except Exception as e:
+                logger.warn("Failed to remove message when mirroring. %s", e)
+            else:
+                await self.update_mirror(new_chat=message)
+
+        while True:
+            message = await self.bot.wait_for('message')
+            if not message or self.state == States.STOPPED or message.channel != self.channel:
+                continue
+
+            # Don't log player messages by the bot or non-standard messages (like pins)
+            player_messages = (self.message.id, self.satellite_message.id, self.mirror_message.id)
+            if message.type is discord.MessageType.default and message.id not in player_messages:
+                asyncio.ensure_future(_delete_and_update(message))
+
     async def _listener_loop(self):
+        """Checks the state of members in the voice channel."""
+
         class VoiceChange(Enum):
             NORMAL, LEFT, JOINED = range(3)
+
         def check(member, before, after):
             if member.guild != self.guild:
                 return VoiceChange.NORMAL
@@ -349,29 +404,34 @@ class MusicPlayer():
                 continue
             elif self.state == States.STOPPED:
                 return
+            member, before, after = result
 
             # Check for self changes
-            if result[0] == self.bot.user:
-                if not result[2]:  # Disconnected
+            if member == self.bot.user:
+                if not after:  # Disconnected
                     # TODO: Consider adding failsafe stop
                     logger.warn("Voice disconnected, detected from _listener_loop.")
                     return
-                if result[1] != result[2]:
+                if before != after:
                     logger.debug("Bot was dragged to a new voice channel.")
-                    if result[2].channel == self.guild.afk_channel:  # TODO: Act on AFK channel
+                    if after.channel == self.guild.afk_channel:  # TODO: Act on AFK channel
                         logger.warn("Moved to the AFK channel. Failsafe stopping.")
-                    self.voice_channel = result[2].channel
+                    self.voice_channel = after.channel
                     self.voice_client = self.guild.voice_client
 
             # Update listener count
             self.listeners = len([it for it in self.voice_channel.members if not it.bot])
-            self.update_listeners()
+            logger.debug("Voice state updated. Listeners: %s", self.listeners)
+            self.update_listeners(update_interface=False)
 
             voice_change = check(*result)
             if voice_change is VoiceChange.LEFT:
-                if result[0].id in self.skip_voters:
-                    self.skip_voters.remove(result[0].id)
+                if member.id in self.skip_voters:
+                    self.skip_voters.remove(member.id)
                     logger.debug("Removing a skip voter...")
+                asyncio.ensure_future(self.update_interface(ignore_ratelimit=True))
+            elif voice_change is VoiceChange.JOINED:
+                asyncio.ensure_future(self.update_interface(ignore_ratelimit=True))
 
             if self.listeners == 0:
                 logger.debug("Automatically pausing.")
@@ -385,17 +445,31 @@ class MusicPlayer():
                 asyncio.ensure_future(self.play())
             # TODO: Consider setting autopause to false by default
 
-    # Updates the number of active listeners and skips the song if enough people have voted
-    def update_listeners(self):
+    def update_listeners(self, update_interface=True):
+        """Updates the number of listeners and skips the song if enough people have voted."""
 
         current_listeners = [it.id for it in self.voice_channel.members]
         for member_id in self.skip_voters[::]:
-            if member_id in current_listeners:
+            if member_id not in current_listeners:
                 self.skip_voters.remove(member_id)
+                logger.debug("update_listeners automatically removed skip voter %s", member_id)
 
-    # Updates the main interface
-    async def update_interface(self, notification_text='', ratelimit_ignore=False):
-        if ratelimit_ignore and time.time() - self.last_interface_update < 1:
+        # Skip if enough votes
+        needed_votes = math.ceil(self.listeners * self.skip_threshold)
+        if len(self.skip_voters) >= needed_votes:
+            logger.debug("Skip threshold met (%s/%s)", self.skip_voters, needed_votes)
+            self.notification = "Track {} ({}) was voteskipped ({} vote{})".format(
+                self.track_index + 1, self._build_hyperlink(self.now_playing),
+                len(self.skip_voters), '' if len(self.skip_voters) == 1 else 's')
+            del self.skip_voters[:]
+            self._skip_track()
+        elif update_interface:
+            logger.debug("= update_listeners:")
+            asyncio.ensure_future(self.update_interface(ignore_ratelimit=True))
+
+    async def update_interface(self, notification_text='', ignore_ratelimit=False):
+        """Calls the other functions to update the main interface."""
+        if not ignore_ratelimit and time.time() - self.last_interface_update < 1:
             return
         await self.update_title()
         await self.update_info()
@@ -404,9 +478,10 @@ class MusicPlayer():
         await self.message.edit(content=None, embed=self.embed)
         self.last_interface_update = time.time()
 
-    # Updates the satellite message
     async def update_satellite(self):
-        if not self.now_playing and self.satellite_data:
+        """Updates the satellite with track data."""
+
+        if not self.now_playing and self.satellite_data:  # Player stopped
             self.satellite_data = None
             await self.satellite_message.edit(embed=discord.Embed())
             return
@@ -436,17 +511,57 @@ class MusicPlayer():
             embed.set_thumbnail(url=extra['artist_thumbnail'])
 
         await self.satellite_message.edit(embed=embed)
+
+    async def update_mirror(self, new_notification=None, new_chat=None):
+        """Updates the mirror message with notification or chat data."""
+
+        if new_notification:
+            if new_notification != self.mirror_last_notification:
+                self.mirror_last_notification = new_notification
+                self.mirror_notifications.append(new_notification)
+        if new_chat:
+            self.mirror_chats.append(new_chat)
+
+        embed = discord.Embed()
+        notifications = '\u200b' + '\n'.join(self.mirror_notifications)
+        embed.add_field(name='Recent notifications:', value=notifications, inline=False)
+
+        if self.mirror_chat:
+            formatted_chats = []
+            for message in self.mirror_chats:
+                if message.attachments:
+                    attachment = ' [(Attachment)]({})'.format(message.attachments[0].url)
+                else:
+                    attachment = ''
+                if message.content:
+                    content = message.content
+                elif message.embeds:
+                    title, description = message.embeds[0].title, message.embeds[0].description
+                    title_text = '{}: '.format(title) if title else ''
+                    description_text = description if description else '[No description]'
+                    content = '{}{}'.format(title_text, description_text)
+                else:
+                    content = '[Empty message]'
+                if len(content) > 80:
+                    content = content[:80] + '**...**'
+                formatted_chats.append('[{}{}]: {}'.format(
+                    message.author.mention, attachment, content))
+            embed.add_field(
+                name='Recent chats:', value='\u200b' + '\n'.join(formatted_chats), inline=False)
+
+        await self.mirror_message.edit(embed=embed)
         
     async def update_footer(self):
         if self.mode == Modes.PLAYLIST:
             shuffle_text = ' | Shuffle: {}'.format('On' if self.shuffle else 'Off')
         else:
             shuffle_text = ''
-        footer_text = 'Volume: {}% | Mode: {}{} | Control: {}'.format(
+        footer_text = 'Volume: {}% | Mode: {}{} | Control: {} | Chat mirroring: {}'.format(
             int(self.volume * 100),
             ('Playlist', 'Queue')[self.mode],
             shuffle_text,
-            ('Public', 'Partially public', 'DJs only')[self.control])
+            ('Public', 'Partially public', 'DJs only')[self.control],
+            'Enabled' if self.mirror_chat else 'Disabled')
         self.embed.set_footer(text=footer_text)
 
     async def update_title(self):
@@ -485,35 +600,33 @@ class MusicPlayer():
         self.embed.set_field_at(0, name=new_name, value=new_value, inline=False)
 
     async def update_info(self):
+        """Updates the info, listeners, and track list explorer display."""
+
         # Listeners
         new_name = '{} listener{}'.format(self.listeners, '' if self.listeners == 1 else 's')
         new_value = '[ {} / {} ] needed to skip'.format(
             len(self.skip_voters), math.ceil(self.listeners * self.skip_threshold))
         self.embed.set_field_at(2, name=new_name, value=new_value, inline=False)
 
-        # Tracklist
+        # Tracklist slice
         total_tracks = len(self.tracklist)
         total_duration = sum(it.duration for it in self.tracklist)
         total_pages = max(int((total_tracks + 4) / 5), 1)
-        #self.page = min(max(self.page, 0), total_pages - 1)
-        if self.page < 0:
-            self.page = total_pages - 1
-        elif self.page >= total_pages:
-            self.page = 0
+        self.page %= total_pages
         displayed_tracks = self.tracklist[self.page * 5:(self.page * 5) + 5]
 
-        info = []
+        # Build individual track entries from slice
+        info = ['---']*5 + ['Page [ {} / {} ]'.format(self.page + 1, total_pages)]
         for index, entry in enumerate(displayed_tracks):
             duration = utilities.get_time_string(entry.duration)
             entry_index = (self.page * 5) + index + 1
             use_indicator = entry_index == self.track_index + 1 and self.mode == Modes.PLAYLIST
-            info.append('**`{}{}`**: ({}) *{}*'.format(
+            info[index] = ('**`{}{}`**: ({}) *{}*'.format(
                 '▶ ' if use_indicator else '', entry_index,
                 duration, self._build_hyperlink(entry)))
-        for index in range(5 - len(displayed_tracks)):
-            info.append('---')
-        info.append('Page [ {} / {} ]'.format(self.page+1, total_pages))
         new_value = '\n'.join(info)
+
+        # Total tracks and runtime
         player_mode = 'queue' if self.mode == Modes.QUEUE else 'playlist'
         if total_tracks > 0:
             new_name = '{} track{} in {} (runtime of {}):'.format(
@@ -526,10 +639,11 @@ class MusicPlayer():
 
         # Info
         if self.now_playing:
-            # TODO: Possible remove redundant link portion?
             new_name = 'Info:'
             time_ago = time.time() - self.now_playing.timestamp
-            new_value = 'Added by <@{}> {} ago [(Link)]({} "{}")'.format(
+            index_string = '[Track {}] '.format(self.track_index + 1)
+            new_value = 'Playing: {}Added by <@{}> {} ago [(Link)]({} "{}")'.format(
+                index_string if self.mode == Modes.PLAYLIST else '',
                 self.now_playing.userid,
                 utilities.get_time_string(time_ago, text=True),
                 self.now_playing.url, self.now_playing.title)
@@ -537,6 +651,7 @@ class MusicPlayer():
             new_name = '---'
             new_value = '---'
 
+        # Determine next track
         if len(self.tracklist) == 0:
             next_index = -1
             new_value += '\n---'
@@ -550,6 +665,7 @@ class MusicPlayer():
             else:
                 next_index = 0
 
+        # Show next track if available
         if next_index != -1:
             next_track = self.tracklist[next_index]
             if self.mode == Modes.PLAYLIST:
@@ -571,10 +687,11 @@ class MusicPlayer():
             self.notification = text
         elif not self.notification:
             self.notification = 'No notification.'
+        asyncio.ensure_future(self.update_mirror(new_notification=self.notification))
         self.embed.set_field_at(4, name='Notification:', value=self.notification)
 
-    # Skips the current track (even if paused)
     def _skip_track(self):
+        """Skips the current track (even if paused)."""
         delta = 1 if self.mode == Modes.PLAYLIST else 0
         if self.mode == Modes.PLAYLIST and self.shuffle and delta != 0:
             if self.now_playing:
@@ -586,6 +703,7 @@ class MusicPlayer():
         logger.debug("_skip_track finished")
 
     async def _track_timer(self, sleeptime, use_skip=False):
+        """Sleeps until the end of the song or cutoff. Plays the next track afterwards."""
         logger.debug("Sleeping for %s seconds. Time: %s", sleeptime, time.time())
         track_check = self.now_playing
         await asyncio.sleep(sleeptime)
@@ -619,7 +737,7 @@ class MusicPlayer():
             current_progress = self.progress
         return (max(duration - current_progress, 0), use_skip)
 
-    async def play(self, track_index=None, skipped=False, wrap_track_numbers=True):
+    async def play(self, track_index=None, skipped=False, wrap_track_numbers=True, author=None):
         """Plays (the given track).
 
         Keyword arguments:
@@ -627,6 +745,7 @@ class MusicPlayer():
             In queue mode, -1 indicates to repeat the current track.
         skipped -- Whether or not the last track was skipped due to a length constraint.
         wrap_track_numbers -- Wraps out-of-bounds track indices to the nearest edge.
+        author -- If provided, displays a notification on who changed the track.
         """
 
         # Ignore loading player
@@ -641,7 +760,8 @@ class MusicPlayer():
             self.voice_client.resume()
             self.start_time = time.time()
             self.timer_task = asyncio.ensure_future(self._track_timer(*self._get_delay()))
-            asyncio.ensure_future(self.update_interface())
+            author_text = '{} resumed the player'.format(author.mention) if author else ''
+            asyncio.ensure_future(self.update_interface(notification_text=author_text))
             logger.debug("Player resumed!")
             return
 
@@ -654,7 +774,7 @@ class MusicPlayer():
             self.now_playing = None
             self.progress = 0
             self.state = States.PAUSED
-            asyncio.ensure_future(self.update_interface())
+            asyncio.ensure_future(self.update_interface(ignore_ratelimit=True))
             asyncio.ensure_future(self.update_satellite())
             return
 
@@ -674,7 +794,7 @@ class MusicPlayer():
                         track_index = -1
                 else:
                     self.notification = (
-                        "Index must be between 1 and {} inclusive.".format(len(self.tracklist)))
+                        'Index must be between 1 and {} inclusive'.format(len(self.tracklist)))
                     asyncio.ensure_future(self.update_interface())
                     return
 
@@ -709,6 +829,8 @@ class MusicPlayer():
                     where_arg='id=%s', input_args=[track.id])
                 self.update_tracklist()
 
+        first_time_startup = bool(self.now_playing)
+
         # Setup the player
         logger.debug("Preparing to play the next track.")
         if self.state == States.PLAYING:
@@ -716,6 +838,7 @@ class MusicPlayer():
                 self.voice_client.stop()
         if self.timer_task:
             self.timer_task.cancel()
+        first_time_startup = not bool(self.now_playing)
         self.state = States.LOADING
         self.now_playing = track
         sound_file = data.get_from_cache(self.bot, None, url=track.url)
@@ -756,13 +879,15 @@ class MusicPlayer():
         self.timer_task = asyncio.ensure_future(self._track_timer(*self._get_delay()))
         if skipped:
             self.notification = (
-                "The track *{}* was cut short because it exceeded "
-                "the song length threshold of {} seconds.".format(
+                'The track *{}* was cut short because it exceeded '
+                'the song length threshold of {} seconds.'.format(
                     self._build_hyperlink(skipped), self.threshold))
-        asyncio.ensure_future(self.update_interface())
+        elif first_time_startup and author:
+            self.notification = '{} started the player'.format(author.mention)
+        asyncio.ensure_future(self.update_interface(ignore_ratelimit=True))
         data.add(self.bot, __name__, 'last_index', self.track_index, guild_id=self.guild.id)
 
-    async def pause(self):
+    async def pause(self, author=None):
         if (self.state in (States.PAUSED, States.LOADING, States.STOPPED) or
                 self.voice_client is None or not self.voice_client.is_playing()):
             return
@@ -772,11 +897,14 @@ class MusicPlayer():
         self.voice_client.pause()
         self.state = States.PAUSED
         self.progress += time.time() - self.start_time
-        asyncio.ensure_future(self.update_interface())
+        author_text = '{} paused the player'.format(author.mention) if author else ''
+        asyncio.ensure_future(self.update_interface(
+            notification_text=author_text, ignore_ratelimit=True))
         logger.debug("Player paused!")
 
     async def stop(self, text="The player has been stopped."):
         logger.debug("Stopping the player!")
+        await utilities.stop_audio(self.bot, self.guild)
         self.state = States.STOPPED
         self.now_playing = None
         try:
@@ -790,10 +918,13 @@ class MusicPlayer():
                 self.progress_task.cancel()
             if self.state_check_task:
                 self.state_check_task.cancel()
+            if self.chat_mirror_task:
+                self.chat_mirror_task.cancel()
         except Exception as e:
-            logger.debug("Failed to stop some task. %s", e)
+            logger.warn("Failed to stop some task. %s", e)
         try:
             asyncio.ensure_future(self.satellite_message.delete())
+            asyncio.ensure_future(self.mirror_message.delete())
             asyncio.ensure_future(self.message.clear_reactions())
             asyncio.ensure_future(self.message.edit(content=text, embed=None))
         except Exception as e:
@@ -820,6 +951,8 @@ class MusicPlayer():
         asyncio.ensure_future(self.update_interface())
         self.progress_task = asyncio.ensure_future(self._progress_loop())
         self.state_check_task = asyncio.ensure_future(self._listener_loop())
+        if self.mirror_chat:
+            self.chat_mirror_task = asyncio.ensure_future(self._chat_mirror_loop())
 
         try:  # TODO: Remove try/except block
             while True:
@@ -828,45 +961,81 @@ class MusicPlayer():
                 logger.debug("Waiting on command...")
                 result = await self.bot.wait_for('reaction_add', **kwargs)
                 if result is None or self.state == States.STOPPED:
-                    logger.debug("Command listener stopping.")
                     return
                 elif result[1] == self.bot.user:
                     logger.warn("Ignoring own command. Is this possible?")
                     continue
-                logger.debug("Command listener finished waiting once.")
 
-                command = result[0].emoji
-                asyncio.ensure_future(self.message.remove_reaction(command, result[1]))
-                if self.state == States.LOADING:
-                    logger.debug("Ignoring command: player is still loading.")
+                # Check validity of reaction
+                command, member = result[0].emoji, result[1]
+                if not await utilities.can_interact(self.bot, member, channel_id=self.channel.id):
                     continue
-                if command not in valid_commands:
-                    logger.debug("Ignoring invalid command: %s", command)
+                asyncio.ensure_future(self.message.remove_reaction(command, member))
+                if (member not in self.voice_channel.members or
+                        self.state == States.LOADING or
+                        command not in valid_commands):
                     continue
 
                 # Check player control type
-                is_dj = data.has_custom_role(self.bot, __name__, 'dj', member=result[1])
-                restriction_width = [0, 5, 10][self.control]
-                if command in valid_commands[:restriction_width] and not is_dj:
+                is_dj = data.has_custom_role(self.bot, __name__, 'dj', member=member)
+                restricted_commands = [
+                    set(),  # Public
+                    (valid_commands[0],) + valid_commands[3:5],  # Partially public
+                    valid_commands[:10]  # DJ Only
+                ][self.control]
+                if command in restricted_commands and not is_dj:
                     logger.debug("Ignoring command (insufficient permissions)")
                     continue
 
-                if command in valid_commands[:3]:  # Play/pause and skip
+                # Play/pause and skip
+                if command in valid_commands[:3]:
                     logger.debug("Play|pause and skip selected")
-                    if command == valid_commands[1]:  # Play/pause
+
+                    # Play/pause
+                    if command == valid_commands[1]:
                         if self.state == States.PLAYING:
-                            asyncio.ensure_future(self.pause())
+                            asyncio.ensure_future(self.pause(author=member))
                         elif self.state == States.PAUSED:
-                            asyncio.ensure_future(self.play())
-                    else:  # skip
-                        if self.mode == Modes.PLAYLIST:
-                            use_repeat = time.time() - self.start_time >= 10
-                            if use_repeat:
-                                delta = 0 if command == valid_commands[0] else 1
+                            asyncio.ensure_future(self.play(author=member))
+
+                    # Skip
+                    else:
+                        # Build skip text
+                        use_skip = command == valid_commands[2]
+                        use_repeat = time.time() - self.start_time >= 10 and self.now_playing
+                        self_skip = False
+                        if use_skip:
+                            if self.now_playing and self.now_playing.userid == member.id:
+                                self_skip = True
+                                skip_format = '{} skipped their track, *{}*'
+                            elif self.now_playing:
+                                skip_format = '{} skipped the last track, *{}*'
                             else:
-                                delta = -1 if command == valid_commands[0] else 1
+                                skip_format = '{} played the queued track'
                         else:
-                            delta = -1 if command == valid_commands[0] else 0
+                            if self.now_playing and (use_repeat or self.mode == Modes.QUEUE):
+                                skip_format = '{} repeated the current track, *{}*'
+                            elif self.now_playing:
+                                skip_format = '{} skipped back a track from *{}*'
+                            else:
+                                skip_format = '{} skipped back a track'
+
+                        # Skip track only if the user is a DJ or was the one that added it
+                        if not self_skip and not is_dj and not self.control == Control.ALL:
+                            continue
+
+                        self.notification = skip_format.format(
+                            member.mention,
+                            self._build_hyperlink(self.now_playing) if self.now_playing else '')
+
+                        # Determine track delta
+                        if self.mode == Modes.PLAYLIST:
+                            # Repeat track if less than 10 seconds have elapsed
+                            start_delta = 1 if self.now_playing else 0
+                            delta = start_delta if use_skip else (0 if use_repeat else -1)
+                        else:
+                            delta = -1 if use_skip else 0
+
                         if self.mode == Modes.PLAYLIST and self.shuffle and delta != 0:
                             last_track = None
                             if delta == -1 and self.shuffle_stack:  # Check shuffle stack first
@@ -881,21 +1050,25 @@ class MusicPlayer():
                                 new_track_index = random.randint(0, len(self.tracklist) - 1)
                         else:
                             new_track_index = self.track_index + delta
+                        logger.debug("current: %s | new_track_index: %s", self.track_index, new_track_index)
                         asyncio.ensure_future(self.play(track_index=new_track_index))
 
-                elif command == valid_commands[3]:  # Stop player
+                # Stop player
+                elif command == valid_commands[3]:
                     await self.stop(
-                        text="The player has been stopped by {}.".format(result[1].mention))
+                        text="The player has been stopped by {}.".format(member.mention))
                     return
 
-                elif command == valid_commands[4]:  # Shuffle mode
+                # Shuffle mode
+                elif command == valid_commands[4]:
                     if self.mode == Modes.PLAYLIST:
                         self.shuffle = not self.shuffle
                         data.add(
                             self.bot, __name__, 'shuffle', self.shuffle, guild_id=self.guild.id)
                     asyncio.ensure_future(self.update_interface())
 
-                elif command == valid_commands[5]:  # Generate tracklist
+                # Generate tracklist
+                elif command == valid_commands[5]:
                     logger.debug("Tracklist selected")
                     if self.tracklist:
                         if self.tracklist_time != self.tracklist_update_time:
@@ -906,49 +1079,37 @@ class MusicPlayer():
                             url = await utilities.upload_to_discord(
                                 self.bot, tracklist_file, filename='tracklist.txt')
                             self.tracklist_url = url
-                        
-                        text = '[Click here]({}) to download the tracklist.'.format(
+
+                        text = '[Click here]({}) to download the tracklist'.format(
                             self.tracklist_url)
                         asyncio.ensure_future(self.update_interface(notification_text=text))
 
-                elif command in valid_commands[6:9]:  # Track listing navigation
-                    logger.debug("Track listing navigation selected")
+                # Track list navigation
+                elif command in valid_commands[6:9]:
+                    logger.debug("Track list navigation selected")
                     if command == valid_commands[7]:  # Reset to page 1
                         self.page = int(self.track_index / 5)
                     else:
                         self.page += -1 if command == valid_commands[6] else 1
-                    asyncio.ensure_future(self.update_interface())
+                    asyncio.ensure_future(self.update_interface(ignore_ratelimit=True))
 
-                elif command == valid_commands[9]:  # Voteskip
+                # Voteskip
+                elif command == valid_commands[9]:
                     logger.debug("Vote skip selected")
-                    if self.state != States.PLAYING:
+                    if self.state != States.PLAYING or member.bot:
                         continue
-                    voice_members = self.voice_channel.members
-                    if result[1].bot:
-                        continue
-                    elif result[1].id in self.skip_voters:
-                        self.skip_voters.remove(result[1].id)
-                    elif result[1] in voice_members:
-                        self.skip_voters.append(result[1].id)
+                    elif member.id in self.skip_voters:
+                        self.skip_voters.remove(member.id)
+                        logger.debug("Vote by %s was removed.", member)
+                    elif member in self.voice_channel.members:
+                        self.skip_voters.append(member.id)
+                        logger.debug("Vote by %s was added.", member)
                     else:
                         continue
+                    self.update_listeners()
 
-                    needed_votes = math.ceil(int(self.listeners * self.skip_threshold))
-
-                    if len(self.skip_voters) >= needed_votes:
-                        logger.debug("Skip threshold met")
-                        self.notification = "The track {} was voteskipped ({} vote{}).".format(
-                            self._build_hyperlink(self.now_playing), len(self.skip_voters),
-                            '' if len(self.skip_voters) == 1 else 's')
-                        del self.skip_voters[:]
-
-                        # Skimmed down skip code
-                        self._skip_track()
-
-                    else:
-                        asyncio.ensure_future(self.update_interface(ratelimit_ignore=True))
-
-                elif command == valid_commands[10]:  # Help
+                # Help
+                elif command == valid_commands[10]:
                     logger.debug("Help selected")
                     button_help = (
                         '⏮, ⏯, ⏭, ⏹: Back, Play|Pause, Next, Stop\n'
@@ -960,12 +1121,13 @@ class MusicPlayer():
                         '❓: This help page'
                     )
                     permissions_help = (
-                        '**DJs only:** Only DJs can manage the player\n'
-                        '**Partially public:** Everybody can add tracks, '
-                        'change track pages, and voteskip\n'
+                        '**DJs only:** Only DJs can manage the player.\n'
+                        '**Partially public:** Everybody can play/pause the '
+                        'player, add tracks, change track pages, and voteskip. '
+                        'You can skip your own tracks as well.\n'
                         '**Public:** Everybody has full control '
                         '(except removing other people\'s '
-                        'tracks and importing tracklists)'
+                        'tracks and importing tracklists).'
                     )
                     status_help = (
                         ':arrow_forward: (Blue): Playing a track\n'
@@ -978,11 +1140,11 @@ class MusicPlayer():
                         'For more, type `help playlist`'
                     ).format(self.bot.commands['playlist'].subcommands)
                     help_embed = discord.Embed(title=':question: Music player help')
-                    help_embed.add_field(name='Basic usage', value=command_help)
-                    help_embed.add_field(name='Buttons', value=button_help)
-                    help_embed.add_field(name='Control types', value=permissions_help)
-                    help_embed.add_field(name='Status icons', value=status_help)
-                    asyncio.ensure_future(result[1].send(embed=help_embed))
+                    help_embed.add_field(name='Basic usage:', value=command_help)
+                    help_embed.add_field(name='Buttons:', value=button_help)
+                    help_embed.add_field(name='Control types:', value=permissions_help)
+                    help_embed.add_field(name='Status icons:', value=status_help)
+                    asyncio.ensure_future(member.send(embed=help_embed))
 
         except Exception as e:
             self.bot.extra = e
@@ -1014,7 +1176,35 @@ async def _check_active_player(bot, guild, autodelete_time=5):
     return music_player, use_player_interface, autodelete
 
 
+def _check_total_tracks_limits(bot, author, autodelete_time=0):
+    """Ensures that limits of the track list are respected."""
+
+    # Limits
+    user_track_limit = data.get(
+        bot, __name__, key='user_track_limit', guild_id=author.guild.id,
+        default=configurations.get(bot, __name__, key='max_user_track_limit'))
+    total_track_limit = data.get(
+        bot, __name__, key='total_track_limit', guild_id=author.guild.id,
+        default=configurations.get(bot, __name__, key='max_total_track_limit'))
+
+    # Checks
+    if data.has_custom_role(bot, __name__, 'dj', member=author):  # DJs ignore limits
+        return
+    tracklist = _get_tracklist(bot, author.guild)
+    if total_track_limit and len(tracklist) >= total_track_limit:
+        raise CBException(
+            "The track limit of {} has been reached.".format(total_track_limit),
+            autodelete=autodelete_time)
+    user_tracks = [it for it in tracklist if it.userid == author.id]
+    if user_track_limit and len(user_tracks) >= user_track_limit:
+        raise CBException(
+            "You cannot add any more songs right now (limit {}).".format(user_track_limit),
+            autodelete=autodelete_time)
+
+
 async def _add_track_to_db(bot, guild, check_url, user_id=0, timestamp=0):
+    """Checks the given url and adds it to the database."""
+
     hard_threshold = configurations.get(bot, __name__, key='hard_threshold')
     options = {'format': 'bestaudio/best', 'noplaylist': True, 'default-search': 'ytsearch'}
     downloader = YoutubeDL(options)
@@ -1105,6 +1295,7 @@ async def add_track(bot, context):
 
     check_url = context.arguments[0]
     try:
+        _check_total_tracks_limits(bot, context.author, autodelete_time=autodelete)
         track_data = await _add_track_to_db(
             bot, context.guild, check_url, user_id=context.author.id)
     except BotException as e:
@@ -1124,7 +1315,7 @@ async def add_track(bot, context):
         music_player.update_tracklist()
     if use_player_interface:
         await music_player.update_interface(
-            notification_text='<@{}> added *[{}]({})* ({}) to the queue.'.format(
+            notification_text='<@{}> added *[{}]({})* ({}) to the queue'.format(
                 context.author.id, title, download_url, utilities.get_time_string(duration)))
 
     return Response(
@@ -1174,7 +1365,7 @@ async def remove_track(bot, context):
                 logger.debug("Skipping track due to same index!")
                 music_player._skip_track()
         await music_player.update_interface(
-            notification_text='<@{}> removed *{}* (track {}) from the queue.'.format(
+            notification_text='<@{}> removed *{}* (track {}) from the queue'.format(
                 context.author.id, music_player._build_hyperlink(track_info), index + 1))
 
     return Response(
@@ -1220,7 +1411,7 @@ async def format_tracklist(bot, context):
     if use_player_interface:
         url = await utilities.upload_to_discord(bot, tracklist_file, filename='tracklist.txt')
         await music_player.update_interface(
-            notification_text='[Click here]({}) to download the current tracklist.'.format(url))
+            notification_text='[Click here]({}) to download the current tracklist'.format(url))
         return Response(content='Tracklist file updated.', delete_after=5)
     else:
         return Response(
@@ -1272,7 +1463,6 @@ async def _import_tracklist_status(bot, context, response):
         last_update_time = time.time()
         total_imported = 0
         for _, track_blob in sorted(response.extra.items()):
-            bot.extra = track_blob  # TODO: remove debug
             cleaned = track_blob.strip()
             if not cleaned:
                 continue
@@ -1283,8 +1473,8 @@ async def _import_tracklist_status(bot, context, response):
                 title = url = track_blob
                 user_id, timestamp = context.author.id, time.time()
 
-            entry_data = await _add_track_to_db(
-                bot, context.guild, url, int(user_id), int(timestamp))
+            _check_total_tracks_limits(bot, context.author)
+            await _add_track_to_db(bot, context.guild, url, int(user_id), int(timestamp))
             total_imported += 1
 
             if time.time() - last_update_time > 5:
@@ -1330,14 +1520,13 @@ async def get_info(bot, context):
     response = "Info for track {}:".format(index + 1)
 
     if use_player_interface:  # Add notification
-        track_link = '[{}]({} "{} (added by {})")'.format(
-            title, track_info.url, track_info.title, track_member)
-        info_text = "{} {}\n{}\n{}".format(response, track_link, duration_text, added_by_text)
+        track_link = music_player._build_hyperlink(track_info)
+        info_text = "{}\n{}\n{}\n{}".format(response, track_link, duration_text, added_by_text)
         music_player.page = int(index / 5)
-        await music_player.update_interface(notification_text=info_text)
+        await music_player.update_interface(notification_text=info_text, ignore_ratelimit=True)
         return Response(message_type=MessageTypes.REPLACE, extra=autodelete)
     else:
-        response += " {} ({})\n{}\n{}".format(title, track_info.url, duration_text, added_by_text)
+        response += "\n{}\n{}\n{}\n{}".format(title, track_info.url, duration_text, added_by_text)
         return Response(content=response)
 
 
@@ -1365,6 +1554,10 @@ async def configure_player(bot, context):
     options = context.options
 
     if use_player_interface:
+        if 'mirrorchat' in options:
+            raise CBException(
+                "Cannot switch chat mirroring mode while the player is active.",
+                autodelete=autodelete)
         if 'switchmode' in options:
             raise CBException(
                 "Cannot switch player modes while it is active.", autodelete=autodelete)
@@ -1372,8 +1565,6 @@ async def configure_player(bot, context):
             raise CBException(
                 "Cannot set text channel while the player is active.", autodelete=autodelete)
 
-    default_threshold = configurations.get(bot, __name__, key='max_threshold')
-    default_cutoff = configurations.get(bot, __name__, key='max_cutoff')
     guild_id = context.guild.id
     changes = []
     is_dj = data.has_custom_role(bot, __name__, 'dj', member=context.author)
@@ -1392,6 +1583,20 @@ async def configure_player(bot, context):
         cutoff = options['cutoff']
         data.add(bot, __name__, 'cutoff', cutoff, guild_id=guild_id)
         changes.append('Cutoff set to {} seconds.'.format(cutoff))
+
+    if 'usertracks' in options:
+        if not is_dj:
+            raise CBException("You must be a DJ in order to change the user track limit.")
+        limit = options['usertracks']
+        data.add(bot, __name__, 'user_track_limit', limit, guild_id=guild_id)
+        changes.append('User track limit set to {} track(s).'.format(limit))
+
+    if 'totaltracks' in options:
+        if not is_dj:
+            raise CBException("You must be a DJ in order to change the total track limit.")
+        limit = options['totaltracks']
+        data.add(bot, __name__, 'total_track_limit', limit, guild_id=guild_id)
+        changes.append('Total track limit set to {} track(s).'.format(limit))
 
     if 'djrole' in options:
         if not is_mod:
@@ -1413,7 +1618,8 @@ async def configure_player(bot, context):
         control = data.get(bot, __name__, 'control', guild_id=guild_id, default=Control.PARTIAL)
         control = 0 if control == len(Control) - 1 else control + 1
         data.add(bot, __name__, 'control', control, guild_id=guild_id)
-        changes.append('Cycled the playlist permissions control mode.')
+        changes.append('Cycled the playlist permissions control mode to: {}'.format(
+            ('Public', 'Partially public', 'DJs only')[control]))
 
     if 'switchmode' in options:
         if not is_mod:
@@ -1421,11 +1627,30 @@ async def configure_player(bot, context):
         mode = data.get(bot, __name__, 'mode', guild_id=guild_id, default=Modes.QUEUE)
         mode = 0 if mode == len(Modes) - 1 else mode + 1
         data.add(bot, __name__, 'mode', mode, guild_id=guild_id)
-        changes.append('Cycled the playlist mode.')
+        changes.append('Cycled the playlist mode to: {}'.format(('Playlist', 'Queue')[mode]))
+
+    if 'mirrorchat' in options:
+        if not is_mod:
+            raise CBException("You must be a bot moderator in order to toggle chat mirroring.")
+        mirror = not data.get(bot, __name__, 'mirror_chat', guild_id=guild_id, default=False)
+        data.add(bot, __name__, 'mirror_chat', mirror, guild_id=guild_id)
+        changes.append('{}abled chat mirroring.'.format('En' if mirror else 'Dis'))
+
+    # Defaults
+    default_threshold = configurations.get(bot, __name__, key='max_threshold')
+    default_cutoff = configurations.get(bot, __name__, key='max_cutoff')
+    default_total_track_limit = configurations.get(bot, __name__, key='max_total_track_limit')
+    default_user_track_limit = configurations.get(bot, __name__, key='max_user_track_limit')
 
     # Format and display all settings
     threshold = data.get(bot, __name__, 'threshold', guild_id=guild_id, default=default_threshold)
     cutoff = data.get(bot, __name__, 'cutoff', guild_id=guild_id, default=default_cutoff)
+    total_track_limit = data.get(
+        bot, __name__, key='total_track_limit',
+        guild_id=guild_id, default=default_total_track_limit)
+    user_track_limit = data.get(
+        bot, __name__, key='user_track_limit',
+        guild_id=guild_id, default=default_user_track_limit)
     dj_role = data.get_custom_role(bot, __name__, 'dj', context.guild)
     control = data.get(bot, __name__, 'control', guild_id=guild_id, default=Control.PARTIAL)
     mode = data.get(bot, __name__, 'mode', guild_id=guild_id, default=Modes.QUEUE)
@@ -1434,9 +1659,12 @@ async def configure_player(bot, context):
 
     embed = discord.Embed(
         title='Player configuration', description=(
-            'Text channel: {}\nThreshold: {}\nCutoff: {}\n'
+            'Text channel: {}\nTotal track limit: {}\n'
+            'User track limit: {}\nThreshold: {}\nCutoff: {}\n'
             'DJ Role: {}\nControl: {}\nPlayer mode: {}\n'.format(
                 text_channel.mention if text_channel else 'None',
+                '{} tracks'.format(total_track_limit),
+                '{} tracks'.format(user_track_limit),
                 '{} seconds'.format(threshold),
                 '{} seconds'.format(cutoff),
                 dj_role.mention if dj_role else 'None',
@@ -1529,11 +1757,10 @@ async def setup_player(bot, context):
 
     # Check given track index if given
     # Get mode from persistent data because the player may not exist yet
-    mode_test = data.get(bot, __name__, 'mode', guild_id=context.guild.id, default=Modes.QUEUE)
     if context.arguments[0] is not None:
         new_track_index = context.arguments[0]
         tracklist = _get_tracklist(bot, context.guild)
-        if not (0 < new_track_index <= len(tracklist)):
+        if not 0 < new_track_index <= len(tracklist):
             raise CBException(
                 "Track index must be between 1 and {} inclusive.".format(len(tracklist)),
                 autodelete=autodelete)
@@ -1564,22 +1791,21 @@ async def setup_player(bot, context):
     else:
         message_history = await context.channel.history(limit=2).flatten()
         if use_autoplay and new_track_index is not None:
-            music_player.notification = '{} skipped to {} (track {}).'.format(
-                context.author.mention, music_player._build_hyperlink(new_track),
-                new_track_index + 1)
+            music_player.notification = '{} skipped to track {} ({}).'.format(
+                context.author.mention, new_track_index + 1,
+                music_player._build_hyperlink(new_track))
 
         play_track = bool(
             use_autoplay and (music_player.state == States.PAUSED or new_track_index is not None))
 
         if len(message_history) > 1 and message_history[1].id == music_player.message.id:
-            logger.debug("Music player already detected in place.")
             # Only play if the player is paused or we're requesting a specific track
             if play_track:
-                asyncio.ensure_future(music_player.play(track_index=new_track_index))
+                asyncio.ensure_future(music_player.play(
+                    track_index=new_track_index, author=context.author))
             return Response(message_type=MessageTypes.REPLACE)
 
         else:
-            logger.debug("Setting new message. Here's the state: %s", music_player.state)
             await music_player.set_new_message(
-                context.channel, autoplay=use_autoplay if play_track else None,
+                context.message, autoplay=use_autoplay if play_track else None,
                 track_index=new_track_index)

@@ -14,3 +14,9 @@ max_cutoff: 600
 # If a song has a length longer than the hard threshold, do not add
 # to the playlist
 hard_threshold: 1800
+
+# Maximum number of tracks the user can add to the player at once
+max_user_track_limit: 50
+
+# Maximum number of tracks the player can hold
+max_total_track_limit: 500
