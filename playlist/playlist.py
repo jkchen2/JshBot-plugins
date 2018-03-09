@@ -197,7 +197,7 @@ class MusicPlayer():
         if self.mode == Modes.QUEUE:
             self.track_index = 0  # Track index in queue mode doesn't change
         else:
-            if self.shuffle:
+            if self.shuffle and self.tracklist:
                 self.track_index = random.randint(0, len(self.tracklist) - 1)
             else:
                 self.track_index = data.get(
@@ -438,11 +438,15 @@ class MusicPlayer():
                 self.autopaused = True
                 self.notification = "The player has been automatically paused."
                 asyncio.ensure_future(self.pause())
+
+            # TODO: Find a better solution to automatic resuming
+            '''
             elif self.listeners == 1 and self.state == States.PAUSED and self.autopaused:
                 logger.debug("Automatically resuming.")
                 self.autopaused=False
                 self.notification = "The player has been automatically resumed."
                 asyncio.ensure_future(self.play())
+            '''
             # TODO: Consider setting autopause to false by default
 
     def update_listeners(self, update_interface=True):
@@ -456,7 +460,7 @@ class MusicPlayer():
 
         # Skip if enough votes
         needed_votes = math.ceil(self.listeners * self.skip_threshold)
-        if len(self.skip_voters) >= needed_votes:
+        if needed_votes and len(self.skip_voters) >= needed_votes:
             logger.debug("Skip threshold met (%s/%s)", self.skip_voters, needed_votes)
             self.notification = "Track {} ({}) was voteskipped ({} vote{})".format(
                 self.track_index + 1, self._build_hyperlink(self.now_playing),
@@ -968,16 +972,16 @@ class MusicPlayer():
 
                 # Check validity of reaction
                 command, member = result[0].emoji, result[1]
+                is_dj = data.has_custom_role(self.bot, __name__, 'dj', member=member)
                 if not await utilities.can_interact(self.bot, member, channel_id=self.channel.id):
                     continue
                 asyncio.ensure_future(self.message.remove_reaction(command, member))
-                if (member not in self.voice_channel.members or
+                if not is_dj and (member not in self.voice_channel.members or
                         self.state == States.LOADING or
                         command not in valid_commands):
                     continue
 
                 # Check player control type
-                is_dj = data.has_custom_role(self.bot, __name__, 'dj', member=member)
                 restricted_commands = [
                     set(),  # Public
                     (valid_commands[0],) + valid_commands[3:5],  # Partially public
@@ -1284,9 +1288,18 @@ async def _add_track_to_db(bot, guild, check_url, user_id=0, timestamp=0):
 
 
 async def add_track(bot, context):
+    """Adds a track to the playlist (via command)."""
     music_player, use_player_interface, autodelete = await _check_active_player(bot, context.guild)
 
-    hard_threshold = configurations.get(bot, __name__, key='hard_threshold')
+    # Check channel restriction
+    channel_id = data.get(bot, __name__, 'channel', guild_id=context.guild.id)
+    if not channel_id:
+        raise CBException("No channel configured for the music player.")
+    channel_restriction = data.get_channel(bot, channel_id)
+    is_dj = data.has_custom_role(bot, __name__, 'dj', member=context.author)
+    if context.channel.id != channel_id and not is_dj:
+        raise CBException("You can only add tracks in {}".format(channel_restriction.mention))
+
     default_threshold = configurations.get(bot, __name__, key='max_threshold')
     default_cutoff = configurations.get(bot, __name__, key='max_cutoff')
     guild_id = context.guild.id
