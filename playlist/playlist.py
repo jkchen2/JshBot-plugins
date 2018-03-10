@@ -21,7 +21,7 @@ from jshbot.exceptions import ConfiguredBotException, BotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.3.5'
+__version__ = '0.3.6'
 CBException = ConfiguredBotException('Music playlist')
 uses_configuration = True
 
@@ -246,6 +246,7 @@ class MusicPlayer():
             error = CBException("Failed to start the player interface.", e=e)
             await self.channel.send(embed=error.embed)
         else:
+            await asyncio.sleep(1)  # Safety sleep
             await self._build_interface()
             # Start playback if necessary
             if autoplay:
@@ -362,7 +363,10 @@ class MusicPlayer():
 
         while True:
             message = await self.bot.wait_for('message')
-            if not message or self.state == States.STOPPED or message.channel != self.channel:
+            if (not self.mirror_chat or
+                    not message or
+                    self.state == States.STOPPED or
+                    message.channel != self.channel):
                 continue
 
             # Don't log player messages by the bot or non-standard messages (like pins)
@@ -436,7 +440,7 @@ class MusicPlayer():
             if self.listeners == 0:
                 logger.debug("Automatically pausing.")
                 self.autopaused = True
-                self.notification = "The player has been automatically paused."
+                self.notification = "The player has been automatically paused"
                 asyncio.ensure_future(self.pause())
 
             # TODO: Find a better solution to automatic resuming
@@ -444,7 +448,7 @@ class MusicPlayer():
             elif self.listeners == 1 and self.state == States.PAUSED and self.autopaused:
                 logger.debug("Automatically resuming.")
                 self.autopaused=False
-                self.notification = "The player has been automatically resumed."
+                self.notification = "The player has been automatically resumed"
                 asyncio.ensure_future(self.play())
             '''
             # TODO: Consider setting autopause to false by default
@@ -551,21 +555,25 @@ class MusicPlayer():
                 formatted_chats.append('[{}{}]: {}'.format(
                     message.author.mention, attachment, content))
             embed.add_field(
-                name='Recent chats:', value='\u200b' + '\n'.join(formatted_chats), inline=False)
+                name='Recent chat messages:',
+                value='\u200b' + '\n'.join(formatted_chats), inline=False)
 
         await self.mirror_message.edit(embed=embed)
         
     async def update_footer(self):
-        if self.mode == Modes.PLAYLIST:
-            shuffle_text = ' | Shuffle: {}'.format('On' if self.shuffle else 'Off')
+        if self.volume < 0.3333:
+            volume_indicator = '\U0001F508'
+        elif self.volume < 0.6667:
+            volume_indicator = '\U0001F509'
         else:
-            shuffle_text = ''
-        footer_text = 'Volume: {}% | Mode: {}{} | Control: {} | Chat mirroring: {}'.format(
+            volume_indicator = '\U0001F50A'
+        footer_text = '{}: {}% | {}{} | {}{} | Click \u2753 for help'.format(
+            volume_indicator,
             int(self.volume * 100),
+            '\U0001F500 ' if self.mode == Modes.PLAYLIST and self.shuffle else '',
             ('Playlist', 'Queue')[self.mode],
-            shuffle_text,
             ('Public', 'Partially public', 'DJs only')[self.control],
-            'Enabled' if self.mirror_chat else 'Disabled')
+            ' | Mirroring chat' if self.mirror_chat else '')
         self.embed.set_footer(text=footer_text)
 
     async def update_title(self):
@@ -771,7 +779,7 @@ class MusicPlayer():
 
         # No more tracks left to play
         if len(self.tracklist) == 0 and not (track_index == -1 and self.state == States.PLAYING):
-            self.notification = "There are no more tracks in the queue."
+            self.notification = "There are no more tracks in the queue"
             if self.voice_client.is_playing():
                 self.voice_client.stop()
             self.source = None
@@ -955,8 +963,7 @@ class MusicPlayer():
         asyncio.ensure_future(self.update_interface())
         self.progress_task = asyncio.ensure_future(self._progress_loop())
         self.state_check_task = asyncio.ensure_future(self._listener_loop())
-        if self.mirror_chat:
-            self.chat_mirror_task = asyncio.ensure_future(self._chat_mirror_loop())
+        self.chat_mirror_task = asyncio.ensure_future(self._chat_mirror_loop())
 
         try:  # TODO: Remove try/except block
             while True:
@@ -1011,14 +1018,14 @@ class MusicPlayer():
                         if use_skip:
                             if self.now_playing and self.now_playing.userid == member.id:
                                 self_skip = True
-                                skip_format = '{} skipped their track, *{}*'
+                                skip_format = '{} skipped their track (*{}*)'
                             elif self.now_playing:
-                                skip_format = '{} skipped the last track, *{}*'
+                                skip_format = '{} skipped the last track (*{}*)'
                             else:
                                 skip_format = '{} played the queued track'
                         else:
                             if self.now_playing and (use_repeat or self.mode == Modes.QUEUE):
-                                skip_format = '{} repeated the current track, *{}*'
+                                skip_format = '{} repeated the current track (*{}*)'
                             elif self.now_playing:
                                 skip_format = '{} skipped back a track from *{}*'
                             else:
@@ -1139,10 +1146,14 @@ class MusicPlayer():
                         ':arrows_counterclockwise: (Orange): Loading'
                     )
                     command_help = (
-                        'To add tracks: {0[3].help_string}\n'
-                        'To remove tracks: {0[4].help_string}\n'
+                        'To add tracks: `{0}`\u200b{1[3].help_string}\n'
+                        'To remove tracks: `{0}`\u200b{1[4].help_string}\n'
+                        'To show the player and/or skip to a track: '
+                        '`{0}`\u200b{1[8].help_string}\n'
                         'For more, type `help playlist`'
-                    ).format(self.bot.commands['playlist'].subcommands)
+                    ).format(
+                        utilities.get_invoker(self.bot, guild=self.guild),
+                        self.bot.commands['playlist'].subcommands)
                     help_embed = discord.Embed(title=':question: Music player help')
                     help_embed.add_field(name='Basic usage:', value=command_help)
                     help_embed.add_field(name='Buttons:', value=button_help)
@@ -1299,6 +1310,12 @@ async def add_track(bot, context):
     is_dj = data.has_custom_role(bot, __name__, 'dj', member=context.author)
     if context.channel.id != channel_id and not is_dj:
         raise CBException("You can only add tracks in {}".format(channel_restriction.mention))
+
+    # Check control restriction
+    control = data.get(
+        bot, __name__, 'control', guild_id=context.guild.id, default=Control.PARTIAL)
+    if not is_dj and control == Control.DJS:
+        raise CBException("You must be a DJ to add tracks.", autodelete=autodelete)
 
     default_threshold = configurations.get(bot, __name__, key='max_threshold')
     default_cutoff = configurations.get(bot, __name__, key='max_cutoff')
@@ -1546,6 +1563,13 @@ async def get_info(bot, context):
 async def set_volume(bot, context):
     music_player, use_player_interface, autodelete = await _check_active_player(bot, context.guild)
 
+    # Check control restriction
+    is_dj = data.has_custom_role(bot, __name__, 'dj', member=context.author)
+    control = data.get(
+        bot, __name__, 'control', guild_id=context.guild.id, default=Control.PARTIAL)
+    if not is_dj and control != Control.ALL:
+        raise CBException("You must be a DJ to change the volume.", autodelete=autodelete)
+
     volume = context.arguments[0]
     data.add(bot, __name__, 'volume', volume, guild_id=context.guild.id)
     if use_player_interface:
@@ -1567,10 +1591,6 @@ async def configure_player(bot, context):
     options = context.options
 
     if use_player_interface:
-        if 'mirrorchat' in options:
-            raise CBException(
-                "Cannot switch chat mirroring mode while the player is active.",
-                autodelete=autodelete)
         if 'switchmode' in options:
             raise CBException(
                 "Cannot switch player modes while it is active.", autodelete=autodelete)
