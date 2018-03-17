@@ -25,6 +25,9 @@ __version__ = '0.3.6'
 CBException = ConfiguredBotException('Music playlist')
 uses_configuration = True
 
+TITLE_LIMIT = 50  # Track title character limit in track explorer
+MIRROR_TIMER = 60  # Chat mirror timer in seconds
+
 class States(IntEnum):
     PLAYING, PAUSED, STOPPED, LOADING = range(4)
 
@@ -321,13 +324,13 @@ class MusicPlayer():
         self.command_task = asyncio.ensure_future(self._command_listener(resume=resume))
 
     def _build_hyperlink(self, track):
-        title = track.title.replace('`', '')
-        if len(title) > 40:
-            title = title[:40] + ' **...**'
+        full_title = track.title.replace('`', '')
+        if len(full_title) > TITLE_LIMIT:
+            title = full_title[:TITLE_LIMIT] + ' **...**'
         else:
-            title = title
-        return '[{0}]({1} "{0} (added by {2})")'.format(
-            title, track.url, data.get_member(self.bot, track.userid))
+            title = full_title
+        return '[{0}]({1} "{2} (added by {3})")'.format(
+            title, track.url, full_title, data.get_member(self.bot, track.userid))
 
     async def _progress_loop(self):
         """Refreshes the progress bar."""
@@ -351,13 +354,13 @@ class MusicPlayer():
         """Mirrors chat messages after 10 seconds."""
 
         async def _delete_and_update(message):
-            await asyncio.sleep(10.5)
+            await asyncio.sleep(MIRROR_TIMER)
             if self.state == States.STOPPED:
                 return
             try:
                 await message.delete()
             except Exception as e:
-                logger.warn("Failed to remove message when mirroring. %s", e)
+                pass
             else:
                 await self.update_mirror(new_chat=message)
 
@@ -708,7 +711,12 @@ class MusicPlayer():
         if self.mode == Modes.PLAYLIST and self.shuffle and delta != 0:
             if self.now_playing:
                 self.shuffle_stack.append(self.now_playing.id)
-            new_track_index = random.randint(0, len(self.tracklist) - 1)
+            if len(self.tracklist) > 1:
+                new_track_index = random.randint(0, len(self.tracklist) - 2)
+                if new_track_index >= self.track_index:
+                    new_track_index += 1
+            else:
+                new_track_index = 0
         else:
             new_track_index = self.track_index + delta
         asyncio.ensure_future(self.play(track_index=new_track_index))
@@ -729,8 +737,13 @@ class MusicPlayer():
             await asyncio.sleep(1)
         if self.mode == Modes.PLAYLIST and self.shuffle:
             logger.debug("Adding track %s to the shuffle stack", track_check.title)
-            new_track_index = random.randint(0, len(self.tracklist) - 1)
             self.shuffle_stack.append(track_check.id)
+            if len(self.tracklist) > 1:
+                new_track_index = random.randint(0, len(self.tracklist) - 2)
+                if new_track_index >= self.track_index:
+                    new_track_index += 1
+            else:
+                new_track_index = 0
             asyncio.ensure_future(self.play(track_index=new_track_index, skipped=use_skip))
         else:
             logger.debug('_track_timer is moving on: %s', use_skip)
@@ -796,7 +809,7 @@ class MusicPlayer():
                 self.track_index = (self.track_index + 1) % len(self.tracklist)
 
         # A specific track index was given
-        elif track_index:
+        elif track_index is not None:
             if track_index != -1 and not 0 <= track_index < len(self.tracklist):
                 if wrap_track_numbers:
                     logger.debug("Wrapping track number.")
@@ -1041,7 +1054,7 @@ class MusicPlayer():
 
                         # Determine track delta
                         if self.mode == Modes.PLAYLIST:
-                            # Repeat track if less than 10 seconds have elapsed
+                            # Repeat track if more than 10 seconds have elapsed
                             start_delta = 1 if self.now_playing else 0
                             delta = start_delta if use_skip else (0 if use_repeat else -1)
                         else:
@@ -1049,7 +1062,7 @@ class MusicPlayer():
 
                         if self.mode == Modes.PLAYLIST and self.shuffle and delta != 0:
                             last_track = None
-                            if delta == -1 and self.shuffle_stack:  # Check shuffle stack first
+                            if not use_skip and self.shuffle_stack:  # Check shuffle stack first
                                 last_track_id = self.shuffle_stack.pop()
                                 for new_track_index, track in enumerate(self.tracklist):
                                     if track.id == last_track_id:
@@ -1058,7 +1071,13 @@ class MusicPlayer():
                             if last_track is None:
                                 if self.now_playing:
                                     self.shuffle_stack.append(self.now_playing.id)
-                                new_track_index = random.randint(0, len(self.tracklist) - 1)
+                                if len(self.tracklist) > 1:
+                                    new_track_index = random.randint(0, len(self.tracklist) - 2)
+                                    if new_track_index >= self.track_index:
+                                        new_track_index += 1
+                                else:
+                                    new_track_index = 0
+                                logger.debug("Shuffled to new track: %s", new_track_index)
                         else:
                             new_track_index = self.track_index + delta
                         logger.debug("current: %s | new_track_index: %s", self.track_index, new_track_index)
@@ -1333,7 +1352,13 @@ async def add_track(bot, context):
         raise e
 
     response = "Song `{}` was added to the playlist.".format(track_data[2])
-    download_url, title, duration = track_data[0], track_data[2], track_data[3]
+    download_url, duration = track_data[0], track_data[3]
+    full_title = track_data[2].replace('`', '')
+    if len(full_title) > TITLE_LIMIT:
+        title = full_title[:TITLE_LIMIT] + ' **...**'
+    else:
+        title = full_title
+
     if duration > threshold:
         response = (
             "\nSong is longer than the threshold length ({} seconds), so "
@@ -1386,7 +1411,6 @@ async def remove_track(bot, context):
     if music_player:
         music_player.update_tracklist()
     if use_player_interface:
-        logger.debug("Removed index: [%s] Current index: [%s]", index, music_player.track_index)
         if music_player.mode == Modes.PLAYLIST:
             use_skip = index == music_player.track_index
             if index <= music_player.track_index:  # Shift track index down
@@ -1540,8 +1564,8 @@ async def get_info(bot, context):
     track_info = tracklist[index]
     track_member = data.get_member(bot, track_info.userid)
     title = track_info.title
-    if len(title) > 40:
-        title = title[:40] + ' **...**'
+    if len(title) > TITLE_LIMIT:
+        title = title[:TITLE_LIMIT] + ' **...**'
 
     time_ago = time.time() - track_info.timestamp
     added_by_text = "Added by <@{}> {} ago.".format(
@@ -1575,7 +1599,7 @@ async def set_volume(bot, context):
     if use_player_interface:
         music_player.update_config()
         await music_player.update_interface(
-            notification_text='<@{}> set the volume to {:.2f}%.'.format(
+            notification_text='<@{}> set the volume to {:.2f}%'.format(
                 context.author.id, volume * 100))
     
     return Response(
