@@ -11,6 +11,7 @@ import discord
 from urllib.parse import urlparse
 from collections import OrderedDict, deque
 from psycopg2.extras import Json
+from datetime import datetime
 
 from enum import Enum, IntEnum
 from youtube_dl import YoutubeDL
@@ -21,7 +22,7 @@ from jshbot.exceptions import ConfiguredBotException, BotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.3.6'
+__version__ = '0.3.7'
 CBException = ConfiguredBotException('Music playlist')
 uses_configuration = True
 
@@ -59,7 +60,8 @@ def get_commands(bot):
                 Opt('tracks'), doc='View the entire playlist', function=format_tracklist),
             SubCommand(
                 Opt('import'),
-                Attachment('tracklist file'),
+                Opt('youtube', attached='url', optional=True, quotes_recommended=False),
+                Attachment('tracklist file', optional=True),
                 doc='Adds the tracks in the attached tracklist file.',
                 function=import_tracklist),
             SubCommand(
@@ -120,6 +122,15 @@ def get_commands(bot):
                 doc='Configures the music player properties.',
                 function=configure_player),
             SubCommand(Opt('clear'), doc='Clears the playlist.', function=clear_playlist),
+            SubCommand(
+                Opt('page'),
+                Arg('number', convert=int, quotes_recommended=False),
+                doc='Displays the given page.', function=skip_to_page),
+            SubCommand(
+                Opt('swap'),
+                Arg('track 1', convert=int, quotes_recommended=False),
+                Arg('track 2', convert=int, quotes_recommended=False),
+                doc='Swaps the position of the given tracks.', function=swap_tracks),
             SubCommand(
                 Opt('play', optional=True, doc='Automatically starts the player.'),
                 Arg('track number', argtype=ArgTypes.OPTIONAL, convert=int,
@@ -323,15 +334,6 @@ class MusicPlayer():
         self.message = await self.channel.send(embed=embed)
         self.command_task = asyncio.ensure_future(self._command_listener(resume=resume))
 
-    def _build_hyperlink(self, track):
-        full_title = track.title.replace('`', '')
-        if len(full_title) > TITLE_LIMIT:
-            title = full_title[:TITLE_LIMIT] + ' **...**'
-        else:
-            title = full_title
-        return '[{0}]({1} "{2} (added by {3})")'.format(
-            title, track.url, full_title, data.get_member(self.bot, track.userid))
-
     async def _progress_loop(self):
         """Refreshes the progress bar."""
         await asyncio.sleep(5)
@@ -469,13 +471,12 @@ class MusicPlayer():
         needed_votes = math.ceil(self.listeners * self.skip_threshold)
         if needed_votes and len(self.skip_voters) >= needed_votes:
             logger.debug("Skip threshold met (%s/%s)", self.skip_voters, needed_votes)
-            self.notification = "Track {} ({}) was voteskipped ({} vote{})".format(
-                self.track_index + 1, self._build_hyperlink(self.now_playing),
+            self.notification = "[Track {}]{} was voteskipped ({} vote{})".format(
+                self.track_index + 1, _build_shortlink(self.bot, self.now_playing),
                 len(self.skip_voters), '' if len(self.skip_voters) == 1 else 's')
             del self.skip_voters[:]
             self._skip_track()
         elif update_interface:
-            logger.debug("= update_listeners:")
             asyncio.ensure_future(self.update_interface(ignore_ratelimit=True))
 
     async def update_interface(self, notification_text='', ignore_ratelimit=False):
@@ -561,7 +562,12 @@ class MusicPlayer():
                 name='Recent chat messages:',
                 value='\u200b' + '\n'.join(formatted_chats), inline=False)
 
-        await self.mirror_message.edit(embed=embed)
+        # TODO: Find a more sane way to introduce character limits
+        try:
+            await self.mirror_message.edit(embed=embed)
+        except Exception as e:
+            logger.warn("Failed to update the satellite message: %s", e)
+
         
     async def update_footer(self):
         if self.volume < 0.3333:
@@ -570,12 +576,12 @@ class MusicPlayer():
             volume_indicator = '\U0001F509'
         else:
             volume_indicator = '\U0001F50A'
-        footer_text = '{}: {}% | {}{} | {}{} | Click \u2753 for help'.format(
+        footer_text = '{}: {}% | {} | {}{}{} | Click \u2753 for help'.format(
             volume_indicator,
             int(self.volume * 100),
+            ('Public', 'Partially public', 'DJs only')[self.control],
             '\U0001F500 ' if self.mode == Modes.PLAYLIST and self.shuffle else '',
             ('Playlist', 'Queue')[self.mode],
-            ('Public', 'Partially public', 'DJs only')[self.control],
             ' | Mirroring chat' if self.mirror_chat else '')
         self.embed.set_footer(text=footer_text)
 
@@ -619,7 +625,7 @@ class MusicPlayer():
 
         # Listeners
         new_name = '{} listener{}'.format(self.listeners, '' if self.listeners == 1 else 's')
-        new_value = '[ {} / {} ] needed to skip'.format(
+        new_value = '[ {} / {} ] votes needed to skip'.format(
             len(self.skip_voters), math.ceil(self.listeners * self.skip_threshold))
         self.embed.set_field_at(2, name=new_name, value=new_value, inline=False)
 
@@ -635,14 +641,19 @@ class MusicPlayer():
         for index, entry in enumerate(displayed_tracks):
             duration = utilities.get_time_string(entry.duration)
             entry_index = (self.page * 5) + index + 1
+            full_title = entry.title.replace('`', '').replace('*', '')
+            if len(full_title) > TITLE_LIMIT:
+                title = full_title[:TITLE_LIMIT] + ' **...**'
+            else:
+                title = full_title
             use_indicator = entry_index == self.track_index + 1 and self.mode == Modes.PLAYLIST
-            info[index] = ('**`{}{}`**: ({}) *{}*'.format(
+            info[index] = ('**[`{}{}`]{}**: ({}) *{}*'.format(
                 '▶ ' if use_indicator else '', entry_index,
-                duration, self._build_hyperlink(entry)))
+                _build_shortlink(self.bot, entry), duration, title))
         new_value = '\n'.join(info)
 
         # Total tracks and runtime
-        player_mode = 'queue' if self.mode == Modes.QUEUE else 'playlist'
+        player_mode = 'queue' if self.mode == Modes.QUEUE else 'the playlist'
         if total_tracks > 0:
             new_name = '{} track{} in {} (runtime of {}):'.format(
                 total_tracks, '' if total_tracks == 1 else 's', player_mode,
@@ -656,12 +667,11 @@ class MusicPlayer():
         if self.now_playing:
             new_name = 'Info:'
             time_ago = time.time() - self.now_playing.timestamp
-            index_string = '[Track {}] '.format(self.track_index + 1)
-            new_value = 'Playing: {}Added by <@{}> {} ago [(Link)]({} "{}")'.format(
+            index_string = '[[Track {}]{}] '.format(
+                self.track_index + 1, _build_shortlink(self.bot, self.now_playing))
+            new_value = 'Playing: {}Added by <@{}> {} ago'.format(
                 index_string if self.mode == Modes.PLAYLIST else '',
-                self.now_playing.userid,
-                utilities.get_time_string(time_ago, text=True),
-                self.now_playing.url, self.now_playing.title)
+                self.now_playing.userid, utilities.get_time_string(time_ago, text=True))
         else:
             new_name = '---'
             new_value = '---'
@@ -683,17 +693,12 @@ class MusicPlayer():
         # Show next track if available
         if next_index != -1:
             next_track = self.tracklist[next_index]
-            if self.mode == Modes.PLAYLIST:
-                index_string = '[Track {}] '.format(next_index + 1)
-            else:
-                index_string = ''
             if next_index >= 0:
                 if self.mode == Modes.PLAYLIST and self.shuffle:
                     new_value += '\nUp next: [Track ?]'
                 else:
-                    duration = utilities.get_time_string(next_track.duration)
-                    new_value += '\nUp next: {}({}) *{}*'.format(
-                        index_string, duration, self._build_hyperlink(next_track))
+                    new_value += '\nUp next: {}'.format(
+                        _build_track_details(self.bot, next_track, next_index))
 
         self.embed.set_field_at(1, name=new_name, value=new_value, inline=False)
 
@@ -770,7 +775,7 @@ class MusicPlayer():
             In queue mode, -1 indicates to repeat the current track.
         skipped -- Whether or not the last track was skipped due to a length constraint.
         wrap_track_numbers -- Wraps out-of-bounds track indices to the nearest edge.
-        author -- If provided, displays a notification on who changed the track.
+        author -- If provided, displays a notification on who started the player.
         """
 
         # Ignore loading player
@@ -878,7 +883,7 @@ class MusicPlayer():
                 downloader = YoutubeDL(options)
                 sound_file = await data.add_to_cache_ydl(self.bot, downloader, track.url)
             except Exception as e:  # Attempt to redownload from base url
-                logger.debug("Failed to download the track. Failsafe skipping... %s", e)
+                logger.warn("Failed to download track %s\n%s", track.url, e)
                 self.notification = "Failed to download {}. Failsafe skipping...".format(
                     track.title)
                 self.state = States.PAUSED
@@ -906,9 +911,13 @@ class MusicPlayer():
             self.notification = (
                 'The track *{}* was cut short because it exceeded '
                 'the song length threshold of {} seconds.'.format(
-                    self._build_hyperlink(skipped), self.threshold))
+                    _build_hyperlink(self.bot, skipped), self.threshold))
         elif first_time_startup and author:
             self.notification = '{} started the player'.format(author.mention)
+
+        # Set tracklist page
+        self.page = int(self.track_index / 5)
+
         asyncio.ensure_future(self.update_interface(ignore_ratelimit=True))
         data.add(self.bot, __name__, 'last_index', self.track_index, guild_id=self.guild.id)
 
@@ -1029,18 +1038,16 @@ class MusicPlayer():
                         use_repeat = time.time() - self.start_time >= 10 and self.now_playing
                         self_skip = False
                         if use_skip:
+                            skip_format = '{} skipped {}'
                             if self.now_playing and self.now_playing.userid == member.id:
                                 self_skip = True
-                                skip_format = '{} skipped their track (*{}*)'
-                            elif self.now_playing:
-                                skip_format = '{} skipped the last track (*{}*)'
-                            else:
+                            elif not self.now_playing:
                                 skip_format = '{} played the queued track'
                         else:
                             if self.now_playing and (use_repeat or self.mode == Modes.QUEUE):
-                                skip_format = '{} repeated the current track (*{}*)'
+                                skip_format = '{} repeated {}'
                             elif self.now_playing:
-                                skip_format = '{} skipped back a track from *{}*'
+                                skip_format = '{} skipped back from {}'
                             else:
                                 skip_format = '{} skipped back a track'
 
@@ -1048,9 +1055,12 @@ class MusicPlayer():
                         if not self_skip and not is_dj and not self.control == Control.ALL:
                             continue
 
-                        self.notification = skip_format.format(
-                            member.mention,
-                            self._build_hyperlink(self.now_playing) if self.now_playing else '')
+                        if self.now_playing:
+                            track_details = _build_track_details(
+                                self.bot, self.now_playing, self.track_index)
+                        else:
+                            track_details = ''
+                        self.notification = skip_format.format(member.mention, track_details)
 
                         # Determine track delta
                         if self.mode == Modes.PLAYLIST:
@@ -1117,7 +1127,7 @@ class MusicPlayer():
                 # Track list navigation
                 elif command in valid_commands[6:9]:
                     logger.debug("Track list navigation selected")
-                    if command == valid_commands[7]:  # Reset to page 1
+                    if command == valid_commands[7]:  # Reset to the current page
                         self.page = int(self.track_index / 5)
                     else:
                         self.page += -1 if command == valid_commands[6] else 1
@@ -1185,6 +1195,37 @@ class MusicPlayer():
             logger.warn("Something bad happened. %s", e)
 
 
+# Link builders
+def _build_hyperlink(bot, track):
+    full_title = track.title.replace('`', '').replace('*', '')
+    if len(full_title) > TITLE_LIMIT:
+        title = full_title[:TITLE_LIMIT] + ' **...**'
+    else:
+        title = full_title
+    return '[{0}]({1} "{2} (added by {3})")'.format(
+        title, track.url, full_title, data.get_member(bot, track.userid))
+
+def _build_shortlink(bot, track):
+    """Like _build_hyperlink, but for the URL portion only."""
+    return '({} "{} (added by {})")'.format(
+        track.url, track.title.replace('`', ''), data.get_member(bot, track.userid))
+
+def _build_track_details(bot, track, index):
+    """Creates a string that shows a one liner of the track"""
+    full_title = track.title.replace('`', '').replace('*', '')
+    if len(full_title) > TITLE_LIMIT:
+        title = full_title[:TITLE_LIMIT] + ' **...**'
+    else:
+        title = full_title
+    return '[[Track {}]({} "{} (added by {})")] ({}) *{}*'.format(
+        index + 1,
+        track.url,
+        full_title,
+        data.get_member(bot, track.userid),
+        utilities.get_time_string(track.duration),
+        title)
+
+
 def _get_tracklist(bot, guild):
     cursor = data.db_select(
         bot, from_arg='playlist', additional='ORDER BY id ASC', table_suffix=guild.id)
@@ -1210,8 +1251,8 @@ async def _check_active_player(bot, guild, autodelete_time=5):
     return music_player, use_player_interface, autodelete
 
 
-def _check_total_tracks_limits(bot, author, autodelete_time=0):
-    """Ensures that limits of the track list are respected."""
+def _check_total_tracks_limits(bot, author):
+    """Ensures that limits of the track list are respected. Returns tracklist."""
 
     # Limits
     user_track_limit = data.get(
@@ -1222,24 +1263,20 @@ def _check_total_tracks_limits(bot, author, autodelete_time=0):
         default=configurations.get(bot, __name__, key='max_total_track_limit'))
 
     # Checks
-    if data.has_custom_role(bot, __name__, 'dj', member=author):  # DJs ignore limits
-        return
     tracklist = _get_tracklist(bot, author.guild)
+    if data.has_custom_role(bot, __name__, 'dj', member=author):  # DJs ignore limits
+        return tracklist
     if total_track_limit and len(tracklist) >= total_track_limit:
-        raise CBException(
-            "The track limit of {} has been reached.".format(total_track_limit),
-            autodelete=autodelete_time)
+        raise CBException("The track limit of {} has been reached.".format(total_track_limit))
     user_tracks = [it for it in tracklist if it.userid == author.id]
     if user_track_limit and len(user_tracks) >= user_track_limit:
         raise CBException(
-            "You cannot add any more songs right now (limit {}).".format(user_track_limit),
-            autodelete=autodelete_time)
+            "You cannot add any more songs right now (limit {}).".format(user_track_limit))
+    return tracklist
 
 
-async def _add_track_to_db(bot, guild, check_url, user_id=0, timestamp=0):
+async def _add_track_with_url(bot, guild, check_url, user_id=0, timestamp=0):
     """Checks the given url and adds it to the database."""
-
-    hard_threshold = configurations.get(bot, __name__, key='hard_threshold')
     options = {'format': 'bestaudio/best', 'noplaylist': True, 'default-search': 'ytsearch'}
     downloader = YoutubeDL(options)
 
@@ -1253,11 +1290,24 @@ async def _add_track_to_db(bot, guild, check_url, user_id=0, timestamp=0):
     if not is_url and not check_url.lower().startswith('ytsearch:'):
         check_url = 'ytsearch:' + check_url.strip()
 
+    # Get information about the track
     try:
         info = await utilities.future(downloader.extract_info, check_url, download=False)
         if not is_url:  # Select first result on search
             info = info['entries'][0]
             check_url = info['webpage_url']
+    except BotException as e:
+        raise e  # Pass up
+    except Exception as e:
+        raise CBException("Failed to fetch information from the URL.", e=e)
+    return await _add_track_to_db(
+        bot, guild, check_url, info, user_id=user_id, timestamp=timestamp)
+
+
+async def _add_track_to_db(bot, guild, check_url, info, user_id=0, timestamp=0):
+    """Adds the given track info to the database."""
+    hard_threshold = configurations.get(bot, __name__, key='hard_threshold')
+    try:
         chosen_format = info['formats'][0]
         download_url = chosen_format['url']
         title = info.get('title', 'Unknown')
@@ -1285,6 +1335,7 @@ async def _add_track_to_db(bot, guild, check_url, user_id=0, timestamp=0):
         raise CBException(
             "Song is longer than the hard threshold of {} seconds.".format(hard_threshold))
 
+    # Prepare data for insertion
     extra_data = {}
     if thumbnail is not None:
         extra_data['thumbnail'] = thumbnail
@@ -1311,10 +1362,9 @@ async def _add_track_to_db(bot, guild, check_url, user_id=0, timestamp=0):
         Json(extra_data)
     ]
 
-    data.db_insert(
-        bot, 'playlist', table_suffix=guild.id, input_args=entry_data, create='playlist_template')
-
-    return entry_data
+    return data.db_insert(
+        bot, 'playlist', table_suffix=guild.id, input_args=entry_data,
+        create='playlist_template')
 
 
 async def add_track(bot, context):
@@ -1344,37 +1394,29 @@ async def add_track(bot, context):
 
     check_url = context.arguments[0]
     try:
-        _check_total_tracks_limits(bot, context.author, autodelete_time=autodelete)
-        track_data = await _add_track_to_db(
+        tracklist = _check_total_tracks_limits(bot, context.author)
+        cursor = await _add_track_with_url(
             bot, context.guild, check_url, user_id=context.author.id)
+        track = cursor.fetchone()
     except BotException as e:
         e.autodelete = autodelete
         raise e
 
-    response = "Song `{}` was added to the playlist.".format(track_data[2])
-    download_url, duration = track_data[0], track_data[3]
-    full_title = track_data[2].replace('`', '')
-    if len(full_title) > TITLE_LIMIT:
-        title = full_title[:TITLE_LIMIT] + ' **...**'
-    else:
-        title = full_title
-
-    if duration > threshold:
-        response = (
-            "\nSong is longer than the threshold length ({} seconds), so "
-            "only the first {} seconds will be played.".format(threshold, cutoff))
+    response = '{} added {}'.format(
+        context.author.mention, _build_track_details(bot, track, len(tracklist)))
+    if track.duration > threshold:
+        response += (
+            "\nTrack is longer than the threshold length ({} seconds), so "
+            "only the first {} seconds will be played".format(threshold, cutoff))
 
     # Check the music player again, as it may have stopped while we were download the url
     music_player, use_player_interface, autodelete = await _check_active_player(bot, context.guild)
-    if music_player:
-        music_player.update_tracklist()
     if use_player_interface:
-        await music_player.update_interface(
-            notification_text='<@{}> added *[{}]({})* ({}) to the queue'.format(
-                context.author.id, title, download_url, utilities.get_time_string(duration)))
+        music_player.update_tracklist()
+        await music_player.update_interface(notification_text=response)
 
     return Response(
-        content=response,
+        embed=discord.Embed(description=response),
         message_type=MessageTypes.REPLACE if use_player_interface else MessageTypes.NORMAL,
         delete_after=autodelete if use_player_interface else None,
         extra=autodelete if use_player_interface else None)
@@ -1396,21 +1438,22 @@ async def remove_track(bot, context):
     is_dj = data.has_custom_role(bot, __name__, 'dj', member=context.author)
     control = data.get(
         bot, __name__, 'control', guild_id=context.guild.id, default=Control.PARTIAL)
-    track_info = tracklist[index]
+    track = tracklist[index]
     if control == Control.DJS and not is_dj:
         raise CBException("You must be a DJ to remove entries.", autodelete=autodelete)
-    elif track_info.userid != context.author.id and not is_dj:
+    elif track.userid != context.author.id and not is_dj:
         raise CBException(
             "You must be the user who added the entry, or a DJ.", autodelete=autodelete)
 
     data.db_delete(
         bot, 'playlist', table_suffix=context.guild.id,
-        where_arg='id=%s', input_args=[track_info.id])
+        where_arg='id=%s', input_args=[track.id])
+    response = '{} removed {}'.format(
+        context.author.mention, _build_track_details(bot, track, index))
 
     # Change current index if necessary
-    if music_player:
-        music_player.update_tracklist()
     if use_player_interface:
+        music_player.update_tracklist()
         if music_player.mode == Modes.PLAYLIST:
             use_skip = index == music_player.track_index
             if index <= music_player.track_index:  # Shift track index down
@@ -1418,18 +1461,26 @@ async def remove_track(bot, context):
             if use_skip:  # Skip track
                 logger.debug("Skipping track due to same index!")
                 music_player._skip_track()
-        await music_player.update_interface(
-            notification_text='<@{}> removed *{}* (track {}) from the queue'.format(
-                context.author.id, music_player._build_hyperlink(track_info), index + 1))
+        await music_player.update_interface(notification_text=response)
 
     return Response(
-        content="Removed `{}` from the queue.".format(track_info.title),
+        embed=discord.Embed(description=response),
         message_type=MessageTypes.REPLACE if use_player_interface else MessageTypes.NORMAL,
         delete_after=autodelete if use_player_interface else None,
         extra=autodelete if use_player_interface else None)
 
 
 def _build_tracklist(bot, guild, tracklist):
+    header = (
+        '# Tracklist generated: {3[1]} {3[0]}\r\n'
+        '# Guild: {0}\r\n'
+        '# Total tracks: {1}\r\n'
+        '# Runtime: {2}\r\n'
+    ).format(
+        guild.name, len(tracklist), sum(it.duration for it in tracklist),
+        utilities.get_timezone_offset(
+            bot, guild_id=guild.id, utc_dt=datetime.utcnow(), as_string=True))
+    tracklist_text_list = [header]
     template = (
         '{}: |\r\n'
         '  {}\r\n'  # Title
@@ -1437,7 +1488,6 @@ def _build_tracklist(bot, guild, tracklist):
         '  Added by {} at {} {}\r\n'  # Info
         '  Duration: {} ID|Timestamp: {}|{}\r\n'  # Duration, internal info
     )
-    tracklist_text_list = []
     for index, track in enumerate(tracklist):
         track_author = data.get_member(bot, track.userid)
         track_author = str(track_author) if track_author else 'Unknown'
@@ -1474,6 +1524,10 @@ async def format_tracklist(bot, context):
 
 async def import_tracklist(bot, context):
     music_player, use_player_interface, autodelete = await _check_active_player(bot, context.guild)
+    use_youtube_playlist = 'youtube' in context.options
+    if not (bool(context.message.attachments) ^ use_youtube_playlist):
+        raise CBException(
+            "Must include an attachment or a YouTube playlist URL.", autodelete=autodelete)
     if not data.has_custom_role(bot, __name__, 'dj', member=context.author):
         raise CBException("You must be a DJ to import tracks.")
     if use_player_interface:
@@ -1482,14 +1536,27 @@ async def import_tracklist(bot, context):
 
     data.add(bot, __name__, 'import_lock', True, guild_id=context.guild.id, volatile=True)
     try:
-        file_url = context.message.attachments[0].url
-        tracklist_file = await utilities.download_url(bot, file_url, use_fp=True)
 
-        tracklist_data = yaml.load(tracklist_file)
-        if isinstance(tracklist_data, str):  # Read lines instead
-            tracklist_file.seek(0)
-            tracklist_blob = tracklist_file.read().decode('utf8').replace('\r\n', '\n').strip()
-            tracklist_data = tracklist_blob.split('\n')
+        # Get tracklist data from playlist URL
+        if use_youtube_playlist:
+            downloader = YoutubeDL()
+            info = await utilities.future(
+                downloader.extract_info, context.options['youtube'], download=False)
+            # tracklist_data = list(it['webpage_url'] for it in info['entries'])
+            tracklist_data = info['entries']
+
+        # Get tracklist data from file
+        else:
+            use_youtube_playlist = False
+            file_url = context.message.attachments[0].url
+            tracklist_file = await utilities.download_url(bot, file_url, use_fp=True)
+
+            tracklist_data = yaml.load(tracklist_file)
+            if isinstance(tracklist_data, str):  # Read lines instead
+                tracklist_file.seek(0)
+                tracklist_blob = tracklist_file.read().decode('utf8').replace('\r\n', '\n').strip()
+                tracklist_data = tracklist_blob.split('\n')
+
         logger.debug("Tracklist data: %s", tracklist_data)
 
         if not tracklist_data or len(tracklist_data) == 0:
@@ -1506,35 +1573,50 @@ async def import_tracklist(bot, context):
     return Response(
         content="Importing tracks...",
         message_type=MessageTypes.ACTIVE,
-        extra=tracklist_data,
+        extra=(tracklist_data, use_youtube_playlist),
         extra_function=_import_tracklist_status)
 
 
 async def _import_tracklist_status(bot, context, response):
+    last_update_time = time.time()
+    total_imported = 0
+    tracklist_data, use_youtube_playlist = response.extra
+
+    async def _update_notification(last_update_time):
+        if time.time() - last_update_time > 5:
+            await response.message.edit(content="Importing tracks... [ {} / {} ]".format(
+                total_imported, len(tracklist_data)))
+            return time.time()
+        return last_update_time
+
     try:
-        if isinstance(response.extra, list):
-            response.extra = OrderedDict((it[0], it[1]) for it in enumerate(response.extra))
-        last_update_time = time.time()
-        total_imported = 0
-        for _, track_blob in sorted(response.extra.items()):
-            cleaned = track_blob.strip()
-            if not cleaned:
-                continue
-            elif '\n' in cleaned:
-                title, url, _, info, _ = track_blob.split('\n')
-                user_id, _, timestamp = info.split()[3].partition('|')
-            else:
-                title = url = track_blob
-                user_id, timestamp = context.author.id, time.time()
 
-            _check_total_tracks_limits(bot, context.author)
-            await _add_track_to_db(bot, context.guild, url, int(user_id), int(timestamp))
-            total_imported += 1
+        if use_youtube_playlist:
+            for info in tracklist_data:
+                await _add_track_to_db(
+                    bot, context.guild, info['webpage_url'], info,
+                    context.author.id, int(time.time()))
+                total_imported += 1
+                last_update_time = await _update_notification(last_update_time)
 
-            if time.time() - last_update_time > 5:
-                await response.message.edit(content="Importing tracks... [ {} / {} ]".format(
-                    total_imported, len(response.extra)))
-                last_update_time = time.time()
+        else:
+            if isinstance(tracklist_data, list):
+                tracklist_data = OrderedDict((it[0], it[1]) for it in enumerate(tracklist_data))
+            for _, track_blob in sorted(tracklist_data.items()):
+                cleaned = track_blob.strip()
+                if not cleaned:
+                    continue
+                elif '\n' in cleaned:
+                    title, url, _, info, _ = track_blob.split('\n')
+                    user_id, _, timestamp = info.split()[3].partition('|')
+                else:
+                    title = url = track_blob
+                    user_id, timestamp = context.author.id, time.time()
+
+                _check_total_tracks_limits(bot, context.author)
+                await _add_track_with_url(bot, context.guild, url, int(user_id), int(timestamp))
+                total_imported += 1
+                last_update_time = await _update_notification(last_update_time)
 
     except Exception as e:
         data.remove(bot, __name__, 'import_lock', guild_id=context.guild.id, volatile=True)
@@ -1574,7 +1656,7 @@ async def get_info(bot, context):
     response = "Info for track {}:".format(index + 1)
 
     if use_player_interface:  # Add notification
-        track_link = music_player._build_hyperlink(track_info)
+        track_link = _build_hyperlink(bot, track_info)
         info_text = "{}\n{}\n{}\n{}".format(response, track_link, duration_text, added_by_text)
         music_player.page = int(index / 5)
         await music_player.update_interface(notification_text=info_text, ignore_ratelimit=True)
@@ -1786,6 +1868,70 @@ async def _confirm_clear_playlist(bot, context, response, result):
     await response.message.edit(content=edit)
 
 
+async def skip_to_page(bot, context):
+    """Skips to a certain page of the tracklist in the player interface."""
+    music_player, use_player_interface, autodelete = await _check_active_player(bot, context.guild)
+    if not use_player_interface:
+        raise CBException("The player interface must be active.")
+
+    # Check page number
+    tracklist = music_player.tracklist
+    page_number = context.arguments[0] - 1
+    total_pages = max(int((len(tracklist) + 4) / 5), 1)
+    if not 0 <= page_number <= total_pages - 1:
+        raise CBException(
+            "Invalid page number. Must be between 1 and {} inclusive.".format(total_pages),
+            autodelete=autodelete)
+
+    music_player.page = page_number
+    await music_player.update_interface(ignore_ratelimit=True)
+    return Response(message_type=MessageTypes.REPLACE, extra=1)
+
+
+async def swap_tracks(bot, context):
+    """Swaps the given two tracks in the playlist."""
+    music_player, use_player_interface, autodelete = await _check_active_player(bot, context.guild)
+
+    # Check control restriction
+    control = data.get(
+        bot, __name__, 'control', guild_id=context.guild.id, default=Control.PARTIAL)
+    is_dj = data.has_custom_role(bot, __name__, 'dj', member=context.author)
+    if not is_dj and control != Control.ALL:
+        raise CBException("You must be a DJ to swap tracks.", autodelete=autodelete)
+    
+    # Check index validity
+    tracklist = _get_tracklist(bot, context.guild)
+    swap = []
+    for index in context.arguments:
+        if not 1 <= index <= len(tracklist):
+            raise CBException(
+                "Index must be between 1 and {}".format(len(tracklist)),
+                autodelete=autodelete)
+        swap.append(tracklist[index - 1])
+
+    # Swap tracks
+    set_arg = (
+        '(url, downloadurl, title, duration, userid, timestamp, extra) = '
+        '(%s, %s, %s, %s, %s, %s, %s)')
+    for index, track in enumerate(swap):
+        data.db_update(
+            bot, 'playlist', table_suffix=context.guild.id,
+            set_arg=set_arg, where_arg='id=%s', input_args=[
+                track.url, track.downloadurl, track.title, track.duration, track.userid,
+                track.timestamp, Json(track.extra), swap[index - 1].id])
+
+    # Add notification and skip track if necessary
+    response = '{} swapped tracks {} and {}'.format(context.author.mention, *context.arguments)
+    if use_player_interface:
+        music_player.update_tracklist()
+        if music_player.track_index + 1 in context.arguments:
+            asyncio.ensure_future(music_player.play(track_index=music_player.track_index))
+        await music_player.update_interface(notification_text=response, ignore_ratelimit=True)
+        return Response(message_type=MessageTypes.REPLACE, extra=autodelete)
+    else:
+        return Response(content=response)
+
+
 async def setup_player(bot, context):
     """Starts the player interface and starts playing a track if selected."""
     music_player, use_player_interface, autodelete = await _check_active_player(bot, context.guild)
@@ -1817,17 +1963,17 @@ async def setup_player(bot, context):
     # Check given track index if given
     # Get mode from persistent data because the player may not exist yet
     if context.arguments[0] is not None:
-        new_track_index = context.arguments[0]
+        track_index = context.arguments[0]
         tracklist = _get_tracklist(bot, context.guild)
-        if not 0 < new_track_index <= len(tracklist):
+        if not 0 < track_index <= len(tracklist):
             raise CBException(
                 "Track index must be between 1 and {} inclusive.".format(len(tracklist)),
                 autodelete=autodelete)
-        new_track_index -= 1
-        new_track = tracklist[new_track_index]
+        track_index -= 1
+        track = tracklist[track_index]
     else:
-        new_track_index = None
-        new_track = None
+        track_index = None
+        track = None
 
     # Check autoplay permissions
     use_autoplay = False
@@ -1841,30 +1987,28 @@ async def setup_player(bot, context):
     if music_player is None or music_player.state == States.STOPPED:
         logger.debug("Creating new music player.")
         music_player = MusicPlayer(
-            bot, context.message, autoplay=use_autoplay, track_index=new_track_index)
+            bot, context.message, autoplay=use_autoplay, track_index=track_index)
         data.add(
-            bot, __name__, 'music_player', music_player,
-            guild_id=context.guild.id, volatile=True)
+            bot, __name__, 'music_player', music_player, guild_id=context.guild.id, volatile=True)
 
     # Update player message or change tracks
     else:
         message_history = await context.channel.history(limit=2).flatten()
-        if use_autoplay and new_track_index is not None:
-            music_player.notification = '{} skipped to track {} ({}).'.format(
-                context.author.mention, new_track_index + 1,
-                music_player._build_hyperlink(new_track))
+        if use_autoplay and track_index is not None:
+            music_player.notification = '{} skipped to {}'.format(
+                context.author.mention, _build_track_details(bot, track, track_index))
 
         play_track = bool(
-            use_autoplay and (music_player.state == States.PAUSED or new_track_index is not None))
+            use_autoplay and (music_player.state == States.PAUSED or track_index is not None))
 
         if len(message_history) > 1 and message_history[1].id == music_player.message.id:
             # Only play if the player is paused or we're requesting a specific track
             if play_track:
                 asyncio.ensure_future(music_player.play(
-                    track_index=new_track_index, author=context.author))
+                    track_index=track_index, author=context.author))
             return Response(message_type=MessageTypes.REPLACE)
 
         else:
             await music_player.set_new_message(
                 context.message, autoplay=use_autoplay if play_track else None,
-                track_index=new_track_index)
+                track_index=track_index)
