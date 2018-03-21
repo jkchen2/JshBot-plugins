@@ -386,7 +386,8 @@ async def _get_summoner(bot, name, region, force_update=False):
         mastery_future = future(
             WATCHER.champion_mastery.by_summoner, PLATFORMS[region], summoner_id)
         try:
-            info = await utilities.parallelize([league_future, mastery_future], pass_error=True)
+            info = await utilities.parallelize(
+                [league_future, mastery_future], propagate_error=True)
         except HTTPError as e:
             handle_lol_exception(e)
 
@@ -880,14 +881,13 @@ async def _get_raw_match(bot, match_id, summoner):
 
         return match_data
 
-    except Exception as e:
-        if isinstance(e, HTTPError):
-            if e.response.status_code == 404:
-                raise CBException("Match does not exist.")
-            else:
-                handle_lol_exception(e)
+    except HTTPError as e:
+        if e.response.status_code == 404:
+            raise CBException("Match does not exist.")
         else:
-            raise CBException("Failed to get match information.", e=e)
+            handle_lol_exception(e)
+    except Exception as e:
+        raise CBException("Failed to get match information.", e=e)
 
 
 def _cache_raw_match(bot, raw_data, summoner):

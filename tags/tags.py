@@ -37,7 +37,7 @@ class TagConverter():
         self.tag_owner = tag_owner
         self.skip_sound = skip_sound
         self.voice_channel_bypass = voice_channel_bypass
-        self.pass_error = True
+        self.propagate_error = True
 
     def __call__(self, bot, message, value, *a, **kwargs):
         tag = _get_tag(bot, value, message.guild.id)

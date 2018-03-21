@@ -251,7 +251,7 @@ async def _create_session(bot, owner, editing=None):
     return session_code
 
 
-async def _process_data(bot, author, url, pass_error=False):
+async def _process_data(bot, author, url, propagate_error=False):
     """Checks the given data and edits/adds an entry to the database."""
     error_code = 1
     raw_data = await utilities.download_url(bot, url, use_fp=True)
@@ -400,7 +400,7 @@ async def _process_data(bot, author, url, pass_error=False):
             raise CBException("Total characters exceeded 3000.")
 
     except BotException as e:
-        if pass_error:
+        if propagate_error:
             raise e
         else:
             await author.send("The data checks failed. Error:\n{}".format(e.error_details))
@@ -441,7 +441,7 @@ async def _process_data(bot, author, url, pass_error=False):
             bot, 'characters', input_args=[author.id, name, clean_name, json_data, tags, dt])
         content = "Created a new entry for {}.".format(name)
 
-    if pass_error:
+    if propagate_error:
         return content
     else:
         await author.send(content)
@@ -494,7 +494,7 @@ async def character_create(bot, context):
     # Use the provided character file
     if context.message.attachments:
         content = await _process_data(
-            bot, context.author, context.message.attachments[0].url, pass_error=True)
+            bot, context.author, context.message.attachments[0].url, propagate_error=True)
         return Response(content=content)
 
     # Use the online entry creator
