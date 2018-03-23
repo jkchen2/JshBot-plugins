@@ -285,9 +285,13 @@ class MusicPlayer():
     async def update_state(self):
         if self.state == States.STOPPED:
             return
-        if ((self.voice_client.is_playing() and self.voice_client.source != self.source)
-                or self.guild.me not in self.voice_channel.members):
-            logger.debug("update_state detected an unstopped instance. Stopping now.")
+        if not self.voice_client:
+            logger.warn("update_state detected that the bot disconnected. Stopping now.")
+            await self.stop(
+                text="The player has been stopped due to an undetected disconnection.")
+        elif ((self.voice_client.is_playing() and self.voice_client.source != self.source) or
+                self.guild.me not in self.voice_channel.members):
+            logger.warn("update_state detected an unstopped instance. Stopping now.")
             await self.stop(
                 text="The player has been stopped due to a different audio source being in use.")
 
@@ -1197,33 +1201,30 @@ class MusicPlayer():
 
 # Link builders
 def _build_hyperlink(bot, track):
+    member = data.get_member(bot, track.userid, safe=True) or 'Unknown'
     full_title = track.title.replace('`', '').replace('*', '')
     if len(full_title) > TITLE_LIMIT:
         title = full_title[:TITLE_LIMIT] + ' **...**'
     else:
         title = full_title
-    return '[{0}]({1} "{2} (added by {3})")'.format(
-        title, track.url, full_title, data.get_member(bot, track.userid))
+    return '[{0}]({1} "{2} (added by {3})")'.format(title, track.url, full_title, member)
 
 def _build_shortlink(bot, track):
     """Like _build_hyperlink, but for the URL portion only."""
-    return '({} "{} (added by {})")'.format(
-        track.url, track.title.replace('`', ''), data.get_member(bot, track.userid))
+    member = data.get_member(bot, track.userid, safe=True) or 'Unknown'
+    return '({} "{} (added by {})")'.format(track.url, track.title.replace('`', ''), member)
 
 def _build_track_details(bot, track, index):
     """Creates a string that shows a one liner of the track"""
+    member = data.get_member(bot, track.userid, safe=True) or 'Unknown'
     full_title = track.title.replace('`', '').replace('*', '')
     if len(full_title) > TITLE_LIMIT:
         title = full_title[:TITLE_LIMIT] + ' **...**'
     else:
         title = full_title
     return '[[Track {}]({} "{} (added by {})")] ({}) *{}*'.format(
-        index + 1,
-        track.url,
-        full_title,
-        data.get_member(bot, track.userid),
-        utilities.get_time_string(track.duration),
-        title)
+        index + 1, track.url, full_title, member,
+        utilities.get_time_string(track.duration), title)
 
 
 def _get_tracklist(bot, guild):
@@ -1489,8 +1490,7 @@ def _build_tracklist(bot, guild, tracklist):
         '  Duration: {} ID|Timestamp: {}|{}\r\n'  # Duration, internal info
     )
     for index, track in enumerate(tracklist):
-        track_author = data.get_member(bot, track.userid)
-        track_author = str(track_author) if track_author else 'Unknown'
+        track_author = data.get_member(bot, track.userid, safe=True) or 'Unknown'
         offset, upload_time = utilities.get_timezone_offset(
             bot, guild_id=guild.id, utc_seconds=track.timestamp, as_string=True)
         upload_time_text = time.strftime('%H:%M %m/%d/%Y', time.gmtime(upload_time))
@@ -1644,14 +1644,13 @@ async def get_info(bot, context):
             len(tracklist)), autodelete=autodelete)
 
     track_info = tracklist[index]
-    track_member = data.get_member(bot, track_info.userid)
     title = track_info.title
     if len(title) > TITLE_LIMIT:
         title = title[:TITLE_LIMIT] + ' **...**'
 
     time_ago = time.time() - track_info.timestamp
     added_by_text = "Added by <@{}> {} ago.".format(
-        track_member.id, utilities.get_time_string(time_ago, text=True))
+        track_info.userid, utilities.get_time_string(time_ago, text=True))
     duration_text = "Duration: ({})".format(utilities.get_time_string(track_info.duration))
     response = "Info for track {}:".format(index + 1)
 
