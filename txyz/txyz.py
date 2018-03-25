@@ -13,10 +13,12 @@ from jshbot.commands import (
 class TextTypes(IntEnum):
     THOUGHT, FOOTER = range(2)
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 CBException = ConfiguredBotException('txyz plugin')
 uses_configuration = False
 
+UPDATE_HOURS = 24
+MAIN_BOT = 179181152777535488
 TXYZ_GUILD = 371885514049191937
 DEFAULTS = ["Looks like my head is a bit empty right now.", "💔︎"]
 TYPE_NAMES = ['thoughts', 'footers']
@@ -55,7 +57,7 @@ def get_commands(bot):
                 Arg('id', convert=int, quotes_recommended=False),
                 function=remove_text),
             SubCommand(Opt('list'), function=list_text)],
-        elevated_level=3, category='tools')]
+        elevated_level=3, hidden=True, category='tools')]
 
 
 @plugins.db_template_spawner
@@ -79,12 +81,22 @@ def create_txyz_tables(bot):
 
 
 async def _cycle_timer(bot, scheduled_time, payload, search, destination, late):
-    utilities.schedule(bot, __name__, time.time()+86400, _cycle_timer, search='txyz_cycler')
-    for text_type in TextTypes:
+    new_time = time.time() + 60*60*UPDATE_HOURS
+    utilities.schedule(bot, __name__, new_time, _cycle_timer, search='txyz_cycler')
+    if bot.user.id == MAIN_BOT:
+        txyz_guild = bot.get_guild(TXYZ_GUILD)
         try:
-            await _cycle_specific(bot, text_type)
+            selected_channel = txyz_guild.voice_channels[2]
+            await selected_channel.edit(name='_{}|{}'.format(
+                len(bot.guilds), sum(1 for it in bot.get_all_members())))
         except Exception as e:
-            logger.warn("Failed to automatically cycle txyz text: %s", e)
+            logger.warn("Failed to update guild count: %s", e)
+    else:
+        for text_type in TextTypes:
+            try:
+                await _cycle_specific(bot, text_type)
+            except Exception as e:
+                logger.warn("Failed to automatically cycle txyz text: %s", e)
 
 
 async def _cycle_specific(bot, cycle_type):
