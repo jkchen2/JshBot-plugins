@@ -369,7 +369,7 @@ async def _update_schedule(bot):
                 "for this game. Please check the schedule at {}.".format(
                     payload['text'], configurations.get(bot, __name__, 'schedule_url')))
             utilities.update_schedule_entries(
-                bot, __name__, search=key, payload={'error': error_message}, time=time.time())
+                bot, __name__, search=key, payload={'error': error_message}, new_time=time.time())
         else:
             game = schedule_data[game_list.index(key)]
             start_time, end_time = game['scheduled'], game['end']
@@ -385,7 +385,7 @@ async def _update_schedule(bot):
             else:
                 payload.update({'end': scheduled + game['seconds']})
             utilities.update_schedule_entries(
-                bot, __name__, search=key, payload=payload, time=scheduled)
+                bot, __name__, search=key, payload=payload, new_time=scheduled)
 
     # Save data
     data.add(bot, __name__, 'schedule', schedule_data, volatile=True)
