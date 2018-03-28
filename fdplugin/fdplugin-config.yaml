@@ -1,0 +1,8 @@
+# Reddit credentials
+reddit_client_id: ''
+reddit_client_secret: ''
+reddit_user_agent: ''
+
+# Vote threshold for Reddit submissions and comments
+submission_karma_threshold: 50
+comment_karma_threshold: 50
