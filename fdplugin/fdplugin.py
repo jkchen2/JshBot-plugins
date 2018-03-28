@@ -155,3 +155,6 @@ async def create_reddit_client(bot):
         client_id=credential_data['reddit_client_id'],
         client_secret=credential_data['reddit_client_secret'],
         user_agent=credential_data['reddit_user_agent'])
+    configurations.redact(bot, __name__, 'reddit_client_id')
+    configurations.redact(bot, __name__, 'reddit_client_secret')
+    configurations.redact(bot, __name__, 'reddit_user_agent')
