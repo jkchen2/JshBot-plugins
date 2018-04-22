@@ -432,7 +432,7 @@ async def automated_dump_message(bot, guild, details, query=None, moderator_id=N
         'buttons': ['❌', '⏭', '❔'],
         'elevation': Elevation.BOT_MODERATORS,
         'autodelete': 30,
-        'kwargs': {'timeout': 30}  # TODO: Change back to 300
+        'kwargs': {'timeout': 300}
     }
     response = Response(
         embed=embed, message_type=MessageTypes.INTERACTIVE, extra=extra, extra_function=_menu)
