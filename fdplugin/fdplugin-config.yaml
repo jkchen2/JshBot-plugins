@@ -1,3 +1,6 @@
+# Guild ID
+guild_id: 000
+
 # Reddit credentials
 reddit_client_id: ''
 reddit_client_secret: ''

@@ -5,11 +5,11 @@ import discord
 from prawcore import NotFound
 from datetime import datetime
 
-from jshbot import utilities, plugins, configurations, data, logger
-from jshbot.exceptions import ConfiguredBotException
+from jshbot import utilities, plugins, configurations, data, logger, parser
+from jshbot.exceptions import ConfiguredBotException, BotException
 from jshbot.commands import Command, SubCommand, Shortcut, ArgTypes, Arg, Opt, Response
 
-__version__ = '0.1.1'
+__version__ = '0.1.2'
 CBException = ConfiguredBotException('/r/Furry Discord plugin')
 CBException_vc = ConfiguredBotException('Verification checker')
 uses_configuration = True
@@ -62,7 +62,7 @@ async def _check_reddit_karma(bot, username):
             except StopIteration:
                 return None
             except NotFound:
-                raise CBException("User u/{} not found.".format(username))
+                raise CBException_vc("User u/{} not found.".format(username))
             except Exception as e:
                 raise CBException_vc("Failed to retrieve data.", e=e)
         return await utilities.future(_f)
@@ -173,3 +173,27 @@ async def create_reddit_client(bot):
     configurations.redact(bot, __name__, 'reddit_client_id')
     configurations.redact(bot, __name__, 'reddit_client_secret')
     configurations.redact(bot, __name__, 'reddit_user_agent')
+
+
+@plugins.listen_for('on_message')
+async def check_warns(bot, message):
+    """Checks for issued warnings."""
+    if (not message.guild or
+            message.guild.id != configurations.get(bot, __name__, 'guild_id') or
+            not message.content.lower().startswith('!warn ') or
+            not data.is_mod(bot, member=message.author) or
+            'autolog.py' not in bot.plugins):
+        return
+
+    split, quotes = parser.split_parameters(message.content, include_quotes=True, quote_list=True)
+    if len(split) < 3:  # Not enough arguments
+        return
+    name = split[2][1:-1] if 2 in quotes else split[2]
+    member = data.get_member(bot, name, guild=message.guild, safe=True, strict=True)
+    if not member or data.is_mod(bot, member=member):  # Member not found or is another mod
+        return
+
+    details = '{0} (<@{0.id}>) was warned by {1} (<@{1.id}>): {2}'.format(
+        member, message.author, ''.join(split[4:]) or "No warn reason given")
+    await bot.plugins['autolog.py'].automated_dump_message(
+        bot, message.guild, details, query=member.id, moderator_id=message.author.id)
