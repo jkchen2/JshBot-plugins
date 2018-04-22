@@ -1,0 +1,2 @@
+# Default number of logged messages in each channel
+message_limit: 200
