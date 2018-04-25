@@ -109,10 +109,10 @@ async def verification_check(bot, context):
     verified_role = _get_verified_role(bot, context.guild, member=member)
     verification_period = configurations.get(bot, __name__, 'verification_period')
 
-    # Check that the user has been here for a week
+    # Check that the user has been here for at least the verification period
     age = (datetime.now() - member.joined_at).days
     plural = '' if age == 1 else 's'
-    if age > verification_period:
+    if age >= verification_period:
         response = ':white_check_mark: Member for {} day{}'
         qualifies = 'qualifies'
         color = discord.Color(0x77b255)
