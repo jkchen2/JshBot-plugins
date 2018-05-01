@@ -514,16 +514,10 @@ async def _get_newest_match(bot, summoner, force_ranked=False, safe=False):
             handle_lol_exception(e)
 
     if not current_match_data:  # Get last game instead
-        if force_ranked:
-            match_type = MatchTypes.RANKED
-            match_list_future = future(
-                WATCHER.match.matchlist_by_account,
-                PLATFORMS[summoner.region], summoner.account_id)
-        else:
-            match_type = MatchTypes.NORMAL
-            match_list_future = future(
-                WATCHER.match.matchlist_by_account_recent,
-                PLATFORMS[summoner.region], summoner.account_id)
+        match_type = MatchTypes.RANKED
+        match_list_future = future(
+            WATCHER.match.matchlist_by_account,
+            PLATFORMS[summoner.region], summoner.account_id)
 
         try:
             matchlist = await match_list_future
@@ -547,16 +541,10 @@ async def _get_newest_match(bot, summoner, force_ranked=False, safe=False):
 
 async def _get_previous_match(bot, summoner, index, force_ranked=False):
     """Returns the cleaned match at the specified index."""
-    if force_ranked:
-        match_type = MatchTypes.RANKED
-        match_list_future = future(
-            WATCHER.match.matchlist_by_account,
-            PLATFORMS[summoner.region], summoner.account_id)
-    else:
-        match_type = MatchTypes.NORMAL
-        match_list_future = future(
-            WATCHER.match.matchlist_by_account_recent,
-            PLATFORMS[summoner.region], summoner.account_id)
+    match_type = MatchTypes.RANKED
+    match_list_future = future(
+        WATCHER.match.matchlist_by_account,
+        PLATFORMS[summoner.region], summoner.account_id)
 
     try:
         matchlist = (await match_list_future)['matches']
@@ -1089,16 +1077,10 @@ def _get_matchlist_entries(bot, clean_matchlist):
 
 
 async def _get_matchlist(bot, summoner, force_ranked=False):
-    if force_ranked:
-        match_type = MatchTypes.RANKED
-        match_list_future = future(
-            WATCHER.match.matchlist_by_account,
-            PLATFORMS[summoner.region], summoner.account_id)
-    else:
-        match_type = MatchTypes.NORMAL
-        match_list_future = future(
-            WATCHER.match.matchlist_by_account_recent,
-            PLATFORMS[summoner.region], summoner.account_id)
+    match_type = MatchTypes.RANKED
+    match_list_future = future(
+        WATCHER.match.matchlist_by_account,
+        PLATFORMS[summoner.region], summoner.account_id)
 
     try:
         match_list = (await match_list_future)['matches']
@@ -1441,6 +1423,7 @@ MODES = {
     420:        "Ranked Solo/Duo",
     430:        "Normal 5v5 (Blind)",
     440:        "Ranked Flex 5v5",
+    450:        "ARAM",
     600:        "Blood Hunt (Assassin Mode)",
     610:        "Dark Star",
 
@@ -1468,6 +1451,7 @@ MODES = {
     "GROUP_FINDER_5x5":                      61,
     "ARAM_UNRANKED_5x5":                     65,
     "ARAM_5x5":                              65,
+    "ARAM":                                  65,
     "ONEFORALL_5x5":                         70,
     "FIRSTBLOOD_1x1":                        72,
     "FIRSTBLOOD_2x2":                        73,
