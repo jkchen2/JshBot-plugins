@@ -12,7 +12,7 @@ from jshbot.exceptions import ConfiguredBotException, BotException
 from jshbot.commands import (
     Command, SubCommand, ArgTypes, Arg, Opt, Response, MessageTypes, Elevation)
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 CBException = ConfiguredBotException('Auto chat logger')
 uses_configuration = True
 
@@ -115,8 +115,7 @@ async def autolog_channels(bot, context):
             else:
                 changes.append('No longer logging {}'.format(channel.mention))
                 _delete_logger(bot, channel)
-
-        return Response('\n'.join(changes))
+        embed = discord.Embed(title='Logging changes', description='\n'.join(changes))
 
     # Show channels that are currently logged
     else:
@@ -124,12 +123,34 @@ async def autolog_channels(bot, context):
         message_limit = data.get(
             bot, __name__, 'message_limit', guild_id=context.guild.id,
             default=default_message_limit)
-        logged_channels = data.get(bot, __name__, 'channels', guild_id=context.guild.id)
-        if not logged_channels:
+        logged_channel_ids = data.get(bot, __name__, 'channels', guild_id=context.guild.id)
+        if not logged_channel_ids:
             raise CBException("No channels are currently logged.")
-        return Response('Logged channels: {}\nDump channel: {}\nLogged messages: {}'.format(
-            ', '.join('<#{}>'.format(it) for it in logged_channels),
-            log_channel.mention, message_limit))
+
+        # Check logged channels
+        # Removes channels that were deleted and have no logged messages
+        logged_channels = []
+        logs = data.get(bot, __name__, 'logs', guild_id=context.guild.id, volatile=True)
+        for channel_id in logged_channel_ids:
+            channel = data.get_channel(bot, channel_id, safe=True)
+            if channel:
+                logged_channels.append(channel)
+            else:
+                if len(logs[channel_id]):
+                    channel = discord.Object(id=channel_id)
+                    channel.mention = 'Deleted channel ({})'.format(channel_id)
+                    logged_channels.append(channel)
+                else:  # No logged messages for removed channel. Delete log.
+                    del logs[channel_id]
+
+        embed = discord.Embed(title='Logging info')
+        embed.add_field(
+            inline=False, name='Logged channels',
+            value=', '.join(it.mention for it in logged_channels))
+        embed.add_field(name='Dump channel', value=log_channel.mention)
+        embed.add_field(name='Logged messages', value=message_limit)
+
+    return Response(embed=embed)
 
 
 async def autolog_messages(bot, context):
@@ -153,21 +174,27 @@ async def autolog_dump(bot, context):
     """Dumps logs into the set channel."""
     log_channel = _check_log_channel(bot, context.guild)
     logged_channel_ids = data.get(bot, __name__, 'channels', guild_id=context.guild.id, default=[])
+    logged_channels = []
     if context.arguments[0]:
-        channels = context.arguments
-        logged_channels = []
-        for channel in channels:
+        for channel in context.arguments:
             if channel.id not in logged_channel_ids:
                 raise CBException("{} is not being logged.".format(channel.mention))
             else:
                 logged_channels.append(channel)
     else:
-        channels = []
-        logged_channels = [data.get_channel(bot, it) for it in logged_channel_ids]
+        for channel_id in logged_channel_ids:
+            channel = data.get_channel(bot, channel_id, safe=True)
+            if channel:
+                logged_channels.append(channel)
+            else:
+                channel = discord.Object(id=channel_id)
+                channel.mention = 'Deleted channel ({})'.format(channel_id)
+                logged_channels.append(channel)
 
     # Build dump data
     logs = data.get(bot, __name__, 'logs', guild_id=context.guild.id, volatile=True)
-    details = 'Manual dump by {0} (<@{0.id}>): {1}'.format(context.author, context.options['details'])
+    details = 'Manual dump by {0} (<@{0.id}>): {1}'.format(
+        context.author, context.options['details'])
     dump_data = _build_dump_data(bot, logs, log_channel, details=details)
 
     # Upload dump data
