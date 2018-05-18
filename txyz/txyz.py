@@ -13,7 +13,7 @@ from jshbot.commands import (
 class TextTypes(IntEnum):
     THOUGHT, FOOTER = range(2)
 
-__version__ = '0.1.1'
+__version__ = '0.1.2'
 CBException = ConfiguredBotException('txyz plugin')
 uses_configuration = False
 
@@ -56,7 +56,31 @@ def get_commands(bot):
                 Arg('type', convert=TXYZTypeConverter(), quotes_recommended=False),
                 Arg('id', convert=int, quotes_recommended=False),
                 function=remove_text),
-            SubCommand(Opt('list'), function=list_text)],
+            SubCommand(Opt('list'), function=list_text),
+            SubCommand(
+                Opt('live'), Opt('disable'), doc='Disables the live page.',
+                function=live_disable),
+            SubCommand(
+                Opt('live'),
+                Opt('invisible', optional=True),
+                Opt('fullscreen', attached='value', optional=True,
+                    convert=int, check=lambda b, m, v, *a: 0 <= v <= 2,
+                    default=0, always_include=True, quotes_recommended=False,
+                    doc='0: Default, 1: Hides nav bar, 2: Viewport fullscreen.'),
+                Opt('theme', attached='value', optional=True,
+                    convert=int, check=lambda b, m, v, *a: 0 <= v <= 4,
+                    default=0, always_include=True, quotes_recommended=False,
+                    doc='0: Default, 1: Auto, 2: Light, 3: Dark, 4: Migraine.'),
+                Opt('weather', attached='value', optional=True,
+                    convert=int, check=lambda b, m, v, *a: 0 <= v <= 4,
+                    default=0, always_include=True, quotes_recommended=False,
+                    doc='0: Default, 1: Clear, 2: Rain, 3: Storm, 4: Snow.'),
+                Opt('audio', attached='value', optional=True,
+                    convert=int, check=lambda b, m, v, *a: 0 <= v <= 2,
+                    default=0, always_include=True, quotes_recommended=False,
+                    doc='0: Default, 1: Silence, 2: Rain.'),
+                Attachment('HTML', doc='HTML file to show.'),
+                function=live_enable)],
         elevated_level=3, hidden=True, category='tools')]
 
 
@@ -145,3 +169,20 @@ async def list_text(bot, context):
     text_file = utilities.get_text_as_file('\n'.join(list_lines))
     discord_file = discord.File(text_file, 'txyz_list.txt')
     return Response(content='Table contents:', file=discord_file)
+
+
+async def live_disable(bot, context):
+    txyz_guild = bot.get_guild(TXYZ_GUILD)
+    await txyz_guild.voice_channels[3].edit(name='_000000|')
+    return Response(content='Live page disabled and the attachment URL has been cleared.')
+
+
+async def live_enable(bot, context):
+    url_suffix = context.message.attachments[0].url.split('/', 4)[-1]
+    channel_name = '_1{visible}{fullscreen}{theme}{weather}{audio}|{url_suffix}'.format(
+        visible=0 if 'invisible' in context.options else 1,
+        url_suffix=url_suffix,
+        **context.options)
+    txyz_guild = bot.get_guild(TXYZ_GUILD)
+    await txyz_guild.voice_channels[3].edit(name=channel_name)
+    return Response(content='Live page enabled with code: {}'.format(channel_name))
