@@ -13,7 +13,7 @@ uses_configuration = False
 
 @plugins.command_spawner
 def get_commands(bot):
-    return [Command('play', subcommands=[SubCommand(Arg('url'))])]
+    return [Command('playtest', subcommands=[SubCommand(Arg('url'))])]
 
 
 async def get_response(bot, context):
