@@ -62,7 +62,9 @@ def get_commands(bot):
                 Opt('import'),
                 Opt('youtube', attached='url', optional=True, quotes_recommended=False),
                 Attachment('tracklist file', optional=True),
-                doc='Adds the tracks in the attached tracklist file.',
+                doc='Adds the tracks in the attached tracklist file, '
+                    'or from the YouTube playlist link. Only DJs can import '
+                    'tracks to prevent abuse.',
                 function=import_tracklist),
             SubCommand(
                 Opt('info'),
@@ -119,7 +121,7 @@ def get_commands(bot):
                 Opt('switchmode', optional=True, group='options',
                     doc='Switches between repeating playlist and single play queue mode.'),
                 Opt('mirrorchat', optional=True, group='options',
-                    doc='Mirrors the last 5 chat messages to a message above the player.'),
+                    doc='Mirrors the last few chat messages to a message above the player.'),
                 doc='Configures the music player properties.',
                 function=configure_player),
             SubCommand(Opt('clear'), doc='Clears the playlist.', function=clear_playlist),
@@ -1074,6 +1076,9 @@ class MusicPlayer():
                 for user in users:
                     if user != self.bot.user:
                         await self.message.remove_reaction(reaction.emoji, user)
+
+            # Safety interface update
+            asyncio.ensure_future(self.update_interface())
 
         self.progress_task = asyncio.ensure_future(self._progress_loop())
         self.state_check_task = asyncio.ensure_future(self._listener_loop())
