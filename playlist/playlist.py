@@ -150,11 +150,11 @@ def get_commands(bot):
                     quotes_recommended=False, convert=int,
                     doc='Plays the given track number.'),
                 Arg('query', argtype=ArgTypes.MERGED_OPTIONAL,
-                    doc='Either a URL to a supported site (YouTube, Bandcamp, SoundCloud, etc.), '
-                        'or a YouTube search query.'),
+                    doc='Either a URL to a supported site (YouTube, Bandcamp, '
+                    'SoundCloud, etc.), or a YouTube search query.'),
                 confidence_threshold=5, doc='Plays (or adds) the given track.',
                 function=setup_player, id='play'),
-            SubCommand(doc='Shows the music player interface.', function=setup_player),
+            SubCommand(doc='Shows the music player interface.', function=setup_player, id='show'),
             ],
         shortcuts=[
             Shortcut('p', '{arguments}', Arg('arguments', argtype=ArgTypes.MERGED_OPTIONAL)),
@@ -838,6 +838,7 @@ class MusicPlayer():
                 self.voice_client.stop()
             self.source = None
             self.now_playing = None
+            self.first_time_startup = True  # Reset so non-DJs can start the player again
             self.progress = 0
             self.state = States.PAUSED
             asyncio.ensure_future(self.update_interface(ignore_ratelimit=True))
@@ -2123,9 +2124,9 @@ async def setup_player(bot, context):
         # Check if messages can just be replaced
         message_history = await context.channel.history(limit=3).flatten()
         message_ids = list(it.id for it in message_history)
-        if len(message_history) > 2 and music_player.message.id in message_ids:
-            # Only play if the player is paused or we're requesting a specific track
-            if play_track and not adding_track:
+        if (len(message_history) > 2 and music_player.message.id in message_ids and
+                not context.subcommand.id == 'show'):
+            if play_track:
                 asyncio.ensure_future(music_player.play(
                     track_index=track_index, author=context.author))
 
