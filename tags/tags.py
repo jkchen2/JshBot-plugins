@@ -299,7 +299,8 @@ async def tag_create(bot, context):
             extra_function=_check_sound_length)
     else:  # Add tag and finish
         _add_tag(bot, tag_data, context.guild.id, replace=False)
-        return Response("Tag `{}` created. (Stored as `{}`)".format(tag_name, cleaned_tag_name))
+        return Response("Tag `{}` created. (Stored as `{}`)".format(
+            utilities.filter_everyone(tag_name), cleaned_tag_name))
 
 
 async def _check_sound_length(bot, context, response):
@@ -877,7 +878,7 @@ async def tag_retrieve(bot, context):
         await _play_sound_tag(bot, tag, content, voice_channel, elevation=context.elevation)
 
     else:
-        return Response(content=content)
+        return Response(content=utilities.filter_everyone(content))
 
 
 async def _play_sound_tag(bot, tag, url, voice_channel, elevation=0, delay=30):
