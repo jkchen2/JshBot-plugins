@@ -72,7 +72,7 @@
     "nonbinary": {
         "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/75/Nonbinary_flag.svg/512px-Nonbinary_flag.svg.png",
         "title": "Non-binary",
-        "substitutions": [],
+        "substitutions": [ "nb" ],
         "structure": [
             { "type": "rectangle", "color": [255, 244, 48], "start": [0, 0], "end": [1, 0.25] },
             { "type": "rectangle", "color": [255, 255, 255, 255], "start": [0, 0.25], "end": [1, 0.5] },
@@ -80,10 +80,10 @@
             { "type": "rectangle", "color": [0, 0, 0, 255], "start": [0, 0.75], "end": [1, 1] }
         ]
     },
-    "lipsticklesbian": {
-        "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/75/Nonbinary_flag.svg/512px-Nonbinary_flag.svg.png",
-        "title": "Lipstick lesbian",
-        "substitutions": [ "lesbian" ],
+    "lesbian": {
+        "image": "https://cdn.discordapp.com/attachments/220327974434504705/454141348589862923/result.png",
+        "title": "Lesbian",
+        "substitutions": [ "lipsticklesbian" ],
         "structure": [
             { "type": "rectangle", "color": [166, 0, 97], "start": [0, 0], "end": [1, 0.1429] },
             { "type": "rectangle", "color": [185, 83, 147, 255], "start": [0, 0.1429], "end": [1, 0.2857] },
