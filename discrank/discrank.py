@@ -1259,7 +1259,7 @@ def _build_match_embed(match):
                     tier_name = ['double', 'triple', 'quadra', 'penta', 'unreal'][kill_tier - 1]
                     tier_text = "{} {}-kill{}".format(
                         frequency, tier_name, '' if frequency == 1 else 's')
-                    tier_emoji = NUMBER_EMOJIS[kill_tier + 1]
+                    tier_emoji = utilities.NUMBER_EMOJIS[kill_tier + 1]
                 else:
                     tier_text = "No multi-kills"
                     tier_emoji = ':stop_button:'
@@ -1580,11 +1580,6 @@ REGION_EMOJIS = {
     'tr':   ':flag_tr:',
     'jp':   ':flag_jp:'
 }
-
-NUMBER_EMOJIS = [
-    ':zero:', ':one:', ':two:', ':three:', ':four:', ':five:',
-    ':six:', ':seven:', ':eight:', ':nine:', ':keycap_ten:'
-]
 
 CHALLENGE_POINTS = {
     'Unranked': 2.66,
