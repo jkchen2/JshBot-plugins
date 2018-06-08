@@ -560,7 +560,10 @@ async def pride_interactive(bot, context):
             response.extra_function = _menu
             response.extra = { 'buttons': ['1⃣', '2⃣', '3⃣', '4⃣'] }
             response.state = { 'path': None, 'stage': 0 }
-            await result.delete()
+            try:
+                await result.delete()
+            except:  # Ignore permissions errors
+                pass
             await response.message.edit(embed=response.embed)
             await bot.handle_response(
                 context.message, response, message_reference=response.message, context=context)
