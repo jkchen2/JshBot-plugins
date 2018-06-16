@@ -9,7 +9,7 @@ from jshbot import utilities, plugins, configurations, data, logger, parser
 from jshbot.exceptions import ConfiguredBotException, BotException
 from jshbot.commands import Command, SubCommand, Shortcut, ArgTypes, Arg, Opt, Response
 
-__version__ = '0.1.2'
+__version__ = '0.1.3'
 CBException = ConfiguredBotException('/r/Furry Discord plugin')
 CBException_vc = ConfiguredBotException('Verification checker')
 uses_configuration = True
@@ -197,3 +197,14 @@ async def check_warns(bot, message):
         member, message.author, ''.join(split[4:]) or "No warn reason given")
     await bot.plugins['autolog.py'].automated_dump_message(
         bot, message.guild, details, query=member.id, moderator_id=message.author.id)
+
+
+@plugins.listen_for('on_message')
+async def death_response(bot, message):
+    """Adds an emoji reaction to a Minecraft death."""
+    configuration = configurations.get(bot, __name__)
+    if (message.channel.id == configuration['minecraft_channel_id'] and
+            message.author.id == configuration['admin_bot_id'] and
+            message.content.startswith('**') and
+            message.content.endswith('**')):
+        await message.add_reaction(bot.get_emoji(configuration['death_reaction_id']))

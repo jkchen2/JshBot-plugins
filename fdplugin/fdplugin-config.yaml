@@ -15,3 +15,12 @@ comment_karma_limit: 50
 
 # Reddit karma threshold for verification
 karma_threshold: 25
+
+# FloofBot's ID
+admin_bot_id: 000
+
+# Minecraft channel
+minecraft_channel_id: 000
+
+# Minecraft death reaction
+death_reaction_id: 000
