@@ -314,7 +314,7 @@ class MusicPlayer():
     async def update_state(self):
         if self.state == States.STOPPED:
             return
-        if not (self.voice_client or self.voice_channel):
+        if not (self.voice_client and self.voice_channel):
             logger.warn("update_state detected that the bot disconnected. Stopping now.")
             await self.stop(
                 text="The player has been stopped due to an undetected disconnection.")
@@ -499,11 +499,11 @@ class MusicPlayer():
     async def update_interface(self, notification_text='', ignore_ratelimit=False):
         """Calls the other functions to update the main interface."""
         await self.update_notification(text=notification_text)
-        if not ignore_ratelimit and time.time() - self.last_interface_update < 1:
-            return
         await self.update_title()
         await self.update_info()
         await self.update_footer()
+        if not ignore_ratelimit and time.time() - self.last_interface_update < 1:
+            return
         await self.message.edit(content=None, embed=self.embed)
         self.last_interface_update = time.time()
 
@@ -607,9 +607,10 @@ class MusicPlayer():
             logger.warn("Failed to update the satellite message: %s", e)
 
     async def update_footer(self):
-        if self.volume < 0.3333:
+        """Updates volume display, control type, and player mode in the footer."""
+        if self.volume < 0.3:
             volume_indicator = '\U0001F508'
-        elif self.volume < 0.6667:
+        elif self.volume < 0.6:
             volume_indicator = '\U0001F509'
         else:
             volume_indicator = '\U0001F50A'
@@ -623,15 +624,23 @@ class MusicPlayer():
         self.embed.set_footer(text=footer_text)
 
     async def update_title(self):
+        """Updates the now playing title and progress bar"""
+        # Calculate progress and set embed color
         if self.state == States.PLAYING:
             progress = self.progress + (time.time() - self.start_time)
             status_icon = ':arrow_forward:'
+            color = discord.Color(0x3b88c3)
         elif self.state == States.PAUSED:
             progress = self.progress
             status_icon = ':pause_button:'
+            color = discord.Color(0xccd6dd)
         else:
             progress = 0
             status_icon = ':arrows_counterclockwise:'
+            color = discord.Color(0xffab00)
+        self.embed.color = color
+
+        # Set title and progress
         if self.now_playing:
             title = self.now_playing.title
             if len(title) > 60:
@@ -647,19 +656,10 @@ class MusicPlayer():
             progress_bar, utilities.get_time_string(progress),
             utilities.get_time_string(duration))
 
-        if self.state == States.PLAYING:
-            color = discord.Color(0x3b88c3)
-        elif self.state == States.PAUSED:
-            color = discord.Color(0xccd6dd)
-        else:  # Loading
-            color = discord.Color(0xffab00)
-        self.embed.color = color
-
         self.embed.set_field_at(0, name=new_name, value=new_value, inline=False)
 
     async def update_info(self):
         """Updates the info, listeners, and track list explorer display."""
-
         # Listeners
         new_name = '{} listener{}'.format(self.listeners, '' if self.listeners == 1 else 's')
         new_value = '[ {} / {} ] :eject: votes needed to skip'.format(
@@ -690,13 +690,13 @@ class MusicPlayer():
         new_value = '\n'.join(info)
 
         # Total tracks and runtime
-        player_mode = 'queue' if self.mode == Modes.QUEUE else 'the playlist'
+        player_mode = 'queued' if self.mode == Modes.QUEUE else 'in the playlist'
         if total_tracks > 0:
-            new_name = '{} track{} in {} (runtime of {}):'.format(
+            new_name = '{} track{} {} (runtime of {}):'.format(
                 total_tracks, '' if total_tracks == 1 else 's', player_mode,
                 utilities.get_time_string(total_duration, text=True))
         else:
-            new_name = 'No tracks in {}'.format(player_mode)
+            new_name = 'No tracks {}'.format(player_mode)
 
         self.embed.set_field_at(3, name=new_name, value=new_value, inline=False)
 
@@ -751,7 +751,7 @@ class MusicPlayer():
     def _skip_track(self):
         """Skips the current track (even if paused)."""
         delta = 1 if self.mode == Modes.PLAYLIST else 0
-        if self.mode == Modes.PLAYLIST and self.shuffle and delta != 0:
+        if self.mode == Modes.PLAYLIST and self.shuffle:
             if self.now_playing:
                 self.shuffle_stack.append(self.now_playing.id)
             if len(self.tracklist) > 1:
@@ -814,7 +814,6 @@ class MusicPlayer():
         wrap_track_numbers -- Wraps out-of-bounds track indices to the nearest edge.
         author -- If provided, displays a notification on who started the player.
         """
-
         # Ignore loading player
         if self.state in (States.LOADING, States.STOPPED):
             return
@@ -898,6 +897,7 @@ class MusicPlayer():
 
         # Setup the player
         logger.debug("Preparing to play the next track.")
+        self.page = int(self.track_index / 5)
         del self.skip_voters[:]
         if self.state == States.PLAYING:
             if self.voice_client.is_playing():
@@ -949,9 +949,6 @@ class MusicPlayer():
                     _build_hyperlink(self.bot, skipped), self.threshold))
         elif self.first_time_startup and author:
             self.notification = '{} started the player'.format(author.mention)
-
-        # Set tracklist page
-        self.page = int(self.track_index / 5)
 
         asyncio.ensure_future(self.update_interface(ignore_ratelimit=True))
         data.add(self.bot, __name__, 'last_index', self.track_index, guild_id=self.guild.id)
