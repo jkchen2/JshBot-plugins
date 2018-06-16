@@ -165,7 +165,8 @@ def _clean_text_wrapper(text, lowercase=True):
     return utilities.clean_text(text, custom=_custom, lowercase=lowercase)
 
 
-async def _session_timeout_notify(bot, scheduled_time, payload, search, destination, late):
+async def _session_timeout_notify(
+        bot, scheduled_time, payload, search, destination, late, info, id, *args):
     logger.debug("Notifying a session timeout.")
     clear_result = await _clear_webhook(bot, search)
     if clear_result:

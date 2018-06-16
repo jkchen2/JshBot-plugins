@@ -104,7 +104,7 @@ def create_txyz_tables(bot):
         utilities.schedule(bot, __name__, time.time(), _cycle_timer, search='txyz_cycler')
 
 
-async def _cycle_timer(bot, scheduled_time, payload, search, destination, late):
+async def _cycle_timer(bot, scheduled_time, payload, search, destination, late, info, id, *args):
     new_time = time.time() + 60*60*UPDATE_HOURS
     utilities.schedule(bot, __name__, new_time, _cycle_timer, search='txyz_cycler')
     if bot.user.id == MAIN_BOT:

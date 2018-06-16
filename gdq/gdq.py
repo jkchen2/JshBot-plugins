@@ -55,7 +55,7 @@ def get_commands(bot):
     return new_commands
 
 
-async def _notify(bot, scheduled_time, payload, search, destination, late):
+async def _notify(bot, scheduled_time, payload, search, destination, late, info, id, *args):
     messageable = utilities.get_messageable(bot, destination)
     if 'error' in payload:
         text = payload['error']
