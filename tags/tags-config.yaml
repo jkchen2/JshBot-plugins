@@ -9,3 +9,6 @@ max_tags_per_server: 1000
 
 # (seconds)
 max_sound_tag_length: 30
+
+# Total number of entries in a random tag
+random_tag_limit: 100

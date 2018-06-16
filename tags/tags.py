@@ -17,14 +17,14 @@ from jshbot.exceptions import BotException, ConfiguredBotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.2.3'
+__version__ = '0.2.4'
 uses_configuration = True
 CBException = ConfiguredBotException('Tags')
 
 # NOTE: Do not change the order of flags
 FLAG_LIST = ['Sound', 'Private', 'NSFW', 'Complex', 'Random']
 SIMPLE_FLAG_LIST = list(it.lower() for it in FLAG_LIST)
-USE_GLOBAL_TAGS, REPLACE_COMMANDS = False, False  # Set by on_ready
+USE_GLOBAL_TAGS, REPLACE_COMMANDS, RANDOM_TAG_LIMIT = False, False, 200  # Set by on_ready
 
 
 # Converts the input (value) into a tag tuple
@@ -101,18 +101,20 @@ class TagConverter():
 
 @plugins.command_spawner
 def get_commands(bot):
+    global USE_GLOBAL_TAGS, RANDOM_TAG_LIMIT
     new_commands = []
 
     valid_filters = '`{}`'.format('`, `'.join(it for it in SIMPLE_FLAG_LIST))
     USE_GLOBAL_TAGS = configurations.get(bot, __name__, 'global_tags')
+    RANDOM_TAG_LIMIT = configurations.get(bot, __name__, 'random_tag_limit')
     global_tag_elevation = 3 if USE_GLOBAL_TAGS else 1
     new_commands.append(Command(
         'tag', subcommands=[
             SubCommand(
                 Opt('create'),
                 Opt('random', optional=True, group='flags',
-                    doc='Random tags can have up to 100 entries. Entries are '
-                        'separated by spaces and quotes upon creation.'),
+                    doc='Random tags can have up to {} entries. Entries are separated '
+                    'by spaces and quotes upon creation.'.format(RANDOM_TAG_LIMIT)),
                 Opt('private', optional=True, group='flags',
                     doc='Tags can only be called by the creator or a moderator.'),
                 Opt('sound', optional=True, group='flags',
@@ -477,8 +479,9 @@ async def tag_edit(bot, context):
         if 'add' in options:
             to_add = options['add']
             total_entries = len(tag.value)
-            if total_entries >= 100:
-                raise CBException("Random tags can have no more than 100 entries.")
+            if total_entries >= RANDOM_TAG_LIMIT:
+                raise CBException(
+                    "Random tags can have no more than {} entries.".format(RANDOM_TAG_LIMIT))
             if 'sound' in flags:  # Check audio length
                 length = (await _get_checked_durations(bot, [to_add]))[0]
             else:
