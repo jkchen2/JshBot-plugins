@@ -324,6 +324,12 @@ class MusicPlayer():
             await self.stop(
                 text="The player has been stopped due to a different audio source being in use.")
 
+    async def reset_player_messages(self):
+        """Rebuilds the set of 3 messages if one is somehow deleted."""
+        await self.set_new_message(self.message)
+        self.mirror_last_notification = ""
+        self.notification = "A message was unexpectedly deleted."
+
     async def set_new_message(self, message, autoplay=False, track_index=None):
         """Bumps up the player interface to the bottom of the channel."""
         if self.command_task:
@@ -335,12 +341,11 @@ class MusicPlayer():
         if self.chat_mirror_task:
             self.chat_mirror_task.cancel()
         if self.message:
-            try:
-                await self.message.delete()
-                await self.satellite_message.delete()
-                await self.mirror_message.delete()
-            except Exception as e:
-                logger.warn("Couldn't delete original messages: %s", e)
+            for old_message in (self.message, self.satellite_message, self.mirror_message):
+                try:
+                    await old_message.delete()
+                except Exception as e:
+                    logger.warn("Couldn't delete original messages: %s", e)
         
         self.channel = message.channel
         self.author = message.author
@@ -504,8 +509,11 @@ class MusicPlayer():
         await self.update_footer()
         if not ignore_ratelimit and time.time() - self.last_interface_update < 1:
             return
-        await self.message.edit(content=None, embed=self.embed)
-        self.last_interface_update = time.time()
+        try:
+            await self.message.edit(content=None, embed=self.embed)
+            self.last_interface_update = time.time()
+        except discord.NotFound:
+            await self.reset_player_messages()
 
     async def update_satellite(self):
         """Updates the satellite with track data."""
@@ -539,7 +547,10 @@ class MusicPlayer():
         if 'artist_thumbnail' in extra:
             embed.set_thumbnail(url=extra['artist_thumbnail'])
 
-        await self.satellite_message.edit(embed=embed)
+        try:
+            await self.satellite_message.edit(embed=embed)
+        except discord.NotFound:
+            await self.reset_player_messages()
 
     async def update_mirror(self, new_notification=None, new_chat=None):
         """Updates the mirror message with notification or chat data."""
@@ -603,8 +614,8 @@ class MusicPlayer():
 
         try:
             await self.mirror_message.edit(embed=embed)
-        except Exception as e:
-            logger.warn("Failed to update the satellite message: %s", e)
+        except discord.NotFound:
+            await self.reset_player_messages()
 
     async def update_footer(self):
         """Updates volume display, control type, and player mode in the footer."""
@@ -745,7 +756,8 @@ class MusicPlayer():
             self.notification = text
         elif not self.notification:
             self.notification = 'No notification.'
-        asyncio.ensure_future(self.update_mirror(new_notification=self.notification))
+        if self.notification != self.mirror_last_notification:
+            asyncio.ensure_future(self.update_mirror(new_notification=self.notification))
         self.embed.set_field_at(4, name='Notification:', value=self.notification)
 
     def _skip_track(self):
@@ -2067,7 +2079,7 @@ async def setup_player(bot, context):
     use_play_command = context.subcommand.id == 'play'
     if use_play_command and (context.arguments[0] and 'track' in context.options):
         raise CBException(
-            "Cannot have supply the track and query paramters at the same time.",
+            "Cannot supply the track and query paramters at the same time.",
             autodelete=autodelete)
 
     # Check given track index if given
@@ -2088,6 +2100,7 @@ async def setup_player(bot, context):
         elif context.arguments[0]:  #  Query given (add track)
             adding_track = True
             add_track_response = await add_track(bot, context)
+            add_track_response.message_type = MessageTypes.PERMANENT
             await bot.handle_response(context.message, add_track_response, context=context)
 
     # Check autoplay permissions
