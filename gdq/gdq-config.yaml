@@ -4,12 +4,15 @@ enable: true
 # (seconds) Number of seconds before the donation stats are marked for updating
 stats_buffer_time: 60
 
+# (seconds) Number of seconds before the schedule is refreshed
+schedule_refresh_time: 300
+
 charity: "Doctors Without Borders"
 schedule_url: "https://gamesdonequick.com/schedule"
 api_url: "https://api.twitch.tv/kraken/streams/gamesdonequick"
-tracker_url: "https://gamesdonequick.com/tracker/20"
+tracker_url: "https://gamesdonequick.com/tracker/23"
 stream_url: "https://www.twitch.tv/gamesdonequick"
-donate_url: "https://gamesdonequick.com/tracker/donate/20"
+donate_url: "https://gamesdonequick.com/tracker/donate/23"
 
 # Twitch API client ID
 client_id: ""

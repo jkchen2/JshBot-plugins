@@ -14,7 +14,7 @@ from jshbot.exceptions import BotException, ConfiguredBotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.2.0'
+__version__ = '0.2.1'
 uses_configuration = True
 CBException = ConfiguredBotException('GDQ plugin')
 
@@ -430,8 +430,8 @@ async def gdq_menu(bot, context, response, result, timed_out):
         response.game_index = data.get(bot, __name__, 'current_index', volatile=True, default=0)
     games_list = schedule_data[response.game_index:response.game_index + 5]
     game_data = _embed_games_information(bot, games_list, guild_id)
-    value = '\n\n'.join(
-        '**[{}] {}**\n{}'.format(it+response.game_index+1, *c) for it, c in enumerate(game_data))
+    values = [(it + response.game_index + 1, *c) for it, c in enumerate(game_data)]
+    value = '\n\n'.join('**`[{}]` {}**\n{}'.format(*it) for it in values)
     response.embed.set_field_at(1, name='Schedule', value=value, inline=False)
     await response.message.edit(embed=response.embed)
 
@@ -535,5 +535,5 @@ async def update_schedule_loop(bot):
             await _update_schedule(bot)
         except Exception as e:
             logger.warn("Failed to update the GDQ schedule. %s", e)
-            await asyncio.sleep(20*60)
-        await asyncio.sleep(10*60)
+            await asyncio.sleep(10*60)
+        await asyncio.sleep(configurations.get(bot, __name__, key='schedule_refresh_time'))
