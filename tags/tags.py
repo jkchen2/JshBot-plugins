@@ -672,15 +672,15 @@ async def tag_export(bot, context):
 
     tag_data = {}
     for tag in tags:
-        logger.debug("Tag '%s' is being prepared...", tag.key)
         if tag.flags & 2 == 2 and not destination:  # Skip private tags
             continue
-        author_name = data.get_member(bot, tag.author, guild=context.guild, safe=True)
+        author_name = data.get_member(
+            bot, tag.author, guild=context.guild, safe=True, strict=True)
         if not author_name:
             author_name = '[Not found]'
         if tag.last_used_by:
             last_used_by_name = data.get_member(
-                bot, tag.last_used_by, guild=context.guild, safe=True)
+                bot, tag.last_used_by, guild=context.guild, safe=True, strict=True)
             if not last_used_by_name:
                 last_used_by_name = '[Not found]'
         else:
@@ -724,10 +724,8 @@ async def tag_export(bot, context):
         raise CBException("No non-private tags exported.")
 
     stream = io.StringIO()
-    logger.debug("Exporting %s tags to stream...", len(tag_data))
     yaml_text = yaml.dump(tag_data, stream=stream, default_flow_style=False, indent=4)
     stream.seek(0)
-    logger.debug("Export complete.")
     return Response(
         content='Exported {} tag{}.'.format(len(tag_data), '' if len(tag_data) == 1 else 's'),
         file=discord.File(stream, filename='database.txt'), destination=destination)
