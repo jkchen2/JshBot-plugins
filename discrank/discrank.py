@@ -23,7 +23,7 @@ from jshbot.exceptions import BotException, ConfiguredBotException, ErrorTypes
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.2.0'
+__version__ = '0.2.1'
 CBException = ConfiguredBotException('Riot API plugin')
 uses_configuration = True
 
@@ -217,8 +217,8 @@ async def _build_summoner_embed(bot, summoner):
     embed = discord.Embed(timestamp=timestamp, colour=RANK_COLORS[summoner.tier])
     opgg_link = 'https://{}.op.gg/summoner/userName={}'.format(
         summoner.region, urllib.parse.quote_plus(summoner.summoner_name))
-    profile_icon = 'https://ddragon.leagueoflegends.com/cdn/7.15.1/img/profileicon/{}.png'.format(
-        summoner.icon)
+    profile_icon = 'https://ddragon.leagueoflegends.com/cdn/{}/img/profileicon/{}.png'.format(
+        ICON_VERSION, summoner.icon)
     embed.set_author(name=summoner.summoner_name, url=opgg_link, icon_url=profile_icon)
     embed.set_thumbnail(url=RANK_ICONS[summoner.tier])
 
@@ -1316,7 +1316,8 @@ async def _get_static_data(bot):
             WATCHER.static_data.champions, 'na1', data_by_id='true'))['data']
         spells = (await future(
             WATCHER.static_data.summoner_spells, 'na1', data_by_id='true'))['data']
-        cache_dictionary = { 'champions': champions, 'spells': spells }
+        icons = await future(WATCHER.static_data.profile_icons, 'na1')
+        cache_dictionary = { 'champions': champions, 'spells': spells, 'icons': icons }
         cache_bytes = io.StringIO()
         json.dump(cache_dictionary, cache_bytes, indent=4)
         utilities.add_temporary_file(bot, cache_bytes, 'discrank_static_cache.json')
@@ -1334,6 +1335,7 @@ async def _get_static_data(bot):
                 static_cache = json.load(cache_file)
             champions = static_cache['champions']
             spells = static_cache['spells']
+            icons = static_cache['icons']
             logger.warn("Using fallback static data cache.")
         else:
             raise CBException(
@@ -1343,14 +1345,14 @@ async def _get_static_data(bot):
     champions.update(champions_named)
     spells_named = dict((v['name'].lower(), v) for _, v in spells.items())
     spells.update(spells_named)
-    return (champions, spells)
+    return (champions, spells, icons['version'])
 
 
 @plugins.listen_for('bot_on_ready_boot')
 async def setup_client(bot):
     """Sets up the client and gets the LoL emojis."""
     # Load champion/spell emojis
-    global CHAMPION_EMOJIS, SPELL_EMOJIS, BDT_EMOJIS, WATCHER, CHAMPIONS, SPELLS
+    global CHAMPION_EMOJIS, SPELL_EMOJIS, BDT_EMOJIS, WATCHER, CHAMPIONS, SPELLS, ICON_VERSION
     emoji_file_location = utilities.get_plugin_file(bot, 'lol_emojis.json', safe=False)
     with open(emoji_file_location, 'r') as emoji_file:
         emoji_data = json.load(emoji_file)
@@ -1368,7 +1370,7 @@ async def setup_client(bot):
 
     # Get static data
     WATCHER = watcher
-    CHAMPIONS, SPELLS = await _get_static_data(bot)
+    CHAMPIONS, SPELLS, ICON_VERSION = await _get_static_data(bot)
 
     # Add external emojis permission
     permissions = {'external_emojis': "Shows champion and spell icons."}
@@ -1546,7 +1548,9 @@ RANK_COLORS = {
 
 DIVISIONS = {"V": "5", "IV": "4", "III": "3", "II": "2", "I": "1"}
 
-WATCHER, CHAMPIONS, SPELLS = None, None, None  # Set on startup
+# Set on startup
+WATCHER, CHAMPIONS, SPELLS = None, None, None
+ICON_VERSION = None
 
 UNKNOWN_EMOJI = ":grey_question:"
 UNKNOWN_EMOJI_URL = "https://i.imgur.com/UF2cwhX.png"
