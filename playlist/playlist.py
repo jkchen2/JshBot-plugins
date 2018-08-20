@@ -1,7 +1,5 @@
 import random
-import logging
 import asyncio
-import functools
 import time
 import math
 
@@ -22,11 +20,12 @@ from jshbot.exceptions import ConfiguredBotException, BotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.3.8'
+__version__ = '0.3.9'
 CBException = ConfiguredBotException('Music playlist')
 uses_configuration = True
 
-TITLE_LIMIT = 50  # Track title character limit in track explorer
+TITLE_LIMIT = 50  # Track title character limit in the track explorer
+URL_LIMIT = 140  # Track URL limit to be displayed in the track explorer
 MIRROR_TIMER = 60  # Chat mirror timer in seconds
 
 class States(IntEnum):
@@ -79,7 +78,7 @@ def get_commands(bot):
                 function=add_track),
             SubCommand(
                 Opt('remove'),
-                Arg('track', quotes_recommended=False, convert=int),
+                Arg('track number', quotes_recommended=False, convert=int),
                 doc='Removes the given track number from the playlist.',
                 function=remove_track),
             SubCommand(
@@ -155,7 +154,7 @@ def get_commands(bot):
                 confidence_threshold=5, doc='Plays (or adds) the given track.',
                 function=setup_player, id='play'),
             SubCommand(doc='Shows the music player interface.', function=setup_player, id='show'),
-            ],
+        ],
         shortcuts=[
             Shortcut('p', '{arguments}', Arg('arguments', argtype=ArgTypes.MERGED_OPTIONAL)),
             Shortcut('add', 'add {query}', Arg('query', argtype=ArgTypes.MERGED)),
@@ -203,6 +202,7 @@ class MusicPlayer():
         self.guild = message.guild
         self.voice_client = None
         self.source = None
+        self.embed = None
         self.message = None  # Set later
         self.satellite_message = None
         self.satellite_data = None
@@ -212,14 +212,17 @@ class MusicPlayer():
         self.mirror_notifications = deque(maxlen=5)
         self.mirror_chats = deque(maxlen=12)
 
-        # Update tasks
+        # Update/internal tasks
         self.timer_task = None  # Player timer
         self.command_task = None  # Waits for reaction commands
         self.progress_task = None  # Refreshes the progress bar
         self.state_check_task = None  # Checks voice state changes
+        self.chat_mirror_task = None  # Mirrors chat every 10 seconds
+        self.autoplay_task = None  # Short-lived task for autostarting the player
 
         # Player information
         self.state = States.LOADING
+        self.loading_interface = False
         self.first_time_startup = True
         self.now_playing = None
         self.notification = None
@@ -318,7 +321,8 @@ class MusicPlayer():
             logger.warn("update_state detected that the bot disconnected. Stopping now.")
             await self.stop(
                 text="The player has been stopped due to an undetected disconnection.")
-        elif ((self.voice_client.is_playing() and self.voice_client.source != self.source) or
+        elif (
+                (self.voice_client.is_playing() and self.voice_client.source != self.source) or
                 self.guild.me not in self.voice_channel.members):
             logger.warn("update_state detected an unstopped instance. Stopping now.")
             await self.stop(
@@ -332,6 +336,16 @@ class MusicPlayer():
 
     async def set_new_message(self, message, autoplay=False, track_index=None):
         """Bumps up the player interface to the bottom of the channel."""
+
+        # Prevent issues with trying to set a new message too quickly
+        if self.loading_interface:
+            logger.warn("Ignoring interface refresh reques as the interface is still loading")
+            if autoplay:
+                self.autoplay_task = asyncio.ensure_future(
+                    self._autoplay(track_index=track_index))
+            return
+        self.loading_interface = True
+
         if self.command_task:
             self.command_task.cancel()
         if self.progress_task:
@@ -346,7 +360,7 @@ class MusicPlayer():
                     await old_message.delete()
                 except Exception as e:
                     logger.warn("Couldn't delete original messages: %s", e)
-        
+
         self.channel = message.channel
         self.author = message.author
         self.satellite_data = None  # Force update
@@ -358,15 +372,16 @@ class MusicPlayer():
     async def _build_interface(self, resume=False):
         """Sets up player messages and the main interface structure."""
         self.state = States.LOADING
+        self.loading_interface = True
         self.satellite_message = await self.channel.send(embed=discord.Embed())
         self.mirror_message = await self.channel.send(embed=discord.Embed())
         embed = discord.Embed(colour=discord.Colour(0xffab00))
         embed.add_field(  # Title
             name=':arrows_counterclockwise: **[]**',
-            value='**`[{}]` [ `0:00` / `0:00` ]**'.format('-'*50), inline=False)
+            value='**`[{}]` [ `0:00` / `0:00` ]**'.format('-' * 50), inline=False)
         embed.add_field(name='---', value='---', inline=False)  # Info
         embed.add_field(name='---', value='---', inline=False)  # Listeners
-        embed.add_field(name='---', value='---\n'*6, inline=False)  # Tracklist
+        embed.add_field(name='---', value='---\n' * 6, inline=False)  # Tracklist
         embed.add_field(name='---', value='---')  # Notification
         self.embed = embed
         self.message = await self.channel.send(embed=embed)
@@ -434,8 +449,7 @@ class MusicPlayer():
             elif before and before.channel == self.voice_channel:
                 if not after or after.channel != self.voice_channel:
                     return VoiceChange.LEFT
-            else:
-                return VoiceChange.NORMAL
+            return VoiceChange.NORMAL
 
         # Preliminary check
         self.listeners = len([it for it in self.voice_channel.members if not it.bot])
@@ -534,10 +548,10 @@ class MusicPlayer():
 
         if 'description' in extra:
             description = extra['description']
-            chunks = [description[it:it+1000] for it in range(0, len(description), 1000)]
+            chunks = [description[it:it + 1000] for it in range(0, len(description), 1000)]
             if len(chunks) > 3:
                 chunks = chunks[:3]
-                chunks[-1] += '**...**'
+                chunks[-1] += '…'
             for index, chunk in enumerate(chunks):
                 embed.add_field(name='Description' if index == 0 else '\u200b', value=chunk)
 
@@ -576,7 +590,7 @@ class MusicPlayer():
 
             def _length_check(segment_index):
                 """Checks the length of a set of 4 messages given the segment."""
-                segment = formatted_chats[4*segment_index:4*segment_index+4]
+                segment = formatted_chats[4 * segment_index:4 * segment_index + 4]
                 return sum(len(it) for it in segment) < 1000
 
             # Format messages
@@ -595,7 +609,7 @@ class MusicPlayer():
                 else:
                     content = '[Empty message]'
                 if len(content) > 500:
-                    content = content[:500] + '**...**'
+                    content = content[:500] + '…'
                 content = content.replace('```', '\`\`\`')
                 formatted_chats.append('[{}{}]: {}'.format(
                     message.author.mention, attachment, content))
@@ -606,7 +620,7 @@ class MusicPlayer():
                     del formatted_chats[0]
 
             # Set embeds
-            segments = [formatted_chats[it:it+4] for it in range(0, 12, 4)]
+            segments = [formatted_chats[it:it + 4] for it in range(0, 12, 4)]
             for index, segment in enumerate(segments):
                 embed.set_field_at(
                     index + 1, name='Recent chat messages:' if index == 0 else '\u200b',
@@ -653,15 +667,13 @@ class MusicPlayer():
 
         # Set title and progress
         if self.now_playing:
-            title = self.now_playing.title
-            if len(title) > 60:
-                title = title[:60] + ' **...**'
+            title = _truncate_title(self.now_playing.title, limit=60)
             duration = self.now_playing.duration
         else:
             title = '---'
             duration = 0
         new_name = '{} **[{}]**'.format(status_icon, title)
-        percentage = 0 if duration == 0 else progress/duration
+        percentage = 0 if duration == 0 else progress / duration
         progress_bar = '\u2588' * int(50 * percentage)
         new_value = '**`[{:-<50}]` [ `{}` / `{}` ]**'.format(
             progress_bar, utilities.get_time_string(progress),
@@ -685,15 +697,12 @@ class MusicPlayer():
         displayed_tracks = self.tracklist[self.page * 5:(self.page * 5) + 5]
 
         # Build individual track entries from slice
-        info = ['---']*5 + ['Page [ {} / {} ]'.format(self.page + 1, total_pages)]
+        info = ['---'] * 5 + ['Page [ {} / {} ]'.format(self.page + 1, total_pages)]
         for index, entry in enumerate(displayed_tracks):
             duration = utilities.get_time_string(entry.duration)
             entry_index = (self.page * 5) + index + 1
             full_title = entry.title.replace('`', '').replace('*', '')
-            if len(full_title) > TITLE_LIMIT:
-                title = full_title[:TITLE_LIMIT] + ' **...**'
-            else:
-                title = full_title
+            title = _truncate_title(full_title)
             use_indicator = entry_index == self.track_index + 1 and self.mode == Modes.PLAYLIST
             info[index] = ('**[`{}{}`]{}**: ({}) *{}*'.format(
                 '▶ ' if use_indicator else '', entry_index,
@@ -1089,6 +1098,8 @@ class MusicPlayer():
 
             # Safety interface update
             asyncio.ensure_future(self.update_interface())
+            await asyncio.sleep(1)
+            self.loading_interface = False
 
         self.progress_task = asyncio.ensure_future(self._progress_loop())
         self.state_check_task = asyncio.ensure_future(self._listener_loop())
@@ -1114,6 +1125,7 @@ class MusicPlayer():
 
                 # Check validity of reaction
                 command, member = result[0].emoji, result[1]
+                logger.debug("Player interaction: %s: %s", member, command)
                 is_dj = data.has_custom_role(self.bot, __name__, 'dj', member=member)
                 if not await utilities.can_interact(self.bot, member, channel_id=self.channel.id):
                     continue
@@ -1255,35 +1267,38 @@ class MusicPlayer():
 
         except Exception as e:
             self.bot.extra = e
-            logger.warn("Something bad happened. %s", e)
+            logger.warn("Something bad happened (%s). %s", type(e), e)
 
 
 # Link builders
 def _build_hyperlink(bot, track):
     member = data.get_member(bot, track.userid, safe=True) or 'Unknown'
     full_title = track.title.replace('`', '').replace('*', '')
-    if len(full_title) > TITLE_LIMIT:
-        title = full_title[:TITLE_LIMIT] + ' **...**'
-    else:
-        title = full_title
+    title = _truncate_title(full_title)
     return '[{0}]({1} "{2} (added by {3})")'.format(title, track.url, full_title, member)
+
 
 def _build_shortlink(bot, track):
     """Like _build_hyperlink, but for the URL portion only."""
     member = data.get_member(bot, track.userid, safe=True) or 'Unknown'
-    return '({} "{} (added by {})")'.format(track.url, track.title.replace('`', ''), member)
+    display_url = 'http://dis.gd' if len(track.url) > URL_LIMIT else track.url
+    display_title = _truncate_title(track.title.replace('`', ''))
+    return '({} "{} (added by {})")'.format(display_url, display_title, member)
+
 
 def _build_track_details(bot, track, index):
     """Creates a string that shows a one liner of the track"""
     member = data.get_member(bot, track.userid, safe=True) or 'Unknown'
     full_title = track.title.replace('`', '').replace('*', '')
-    if len(full_title) > TITLE_LIMIT:
-        title = full_title[:TITLE_LIMIT] + ' **...**'
-    else:
-        title = full_title
+    title = _truncate_title(full_title)
     return '[[Track {}]({} "{} (added by {})")] ({}) *{}*'.format(
         index + 1, track.url, full_title, member,
         utilities.get_time_string(track.duration), title)
+
+
+def _truncate_title(text, limit=TITLE_LIMIT):
+    """Truncates the text to the given limit if it is too long."""
+    return (text[:limit] + '…') if len(text) > limit else text
 
 
 def _get_tracklist(bot, guild):
@@ -1703,9 +1718,7 @@ async def get_info(bot, context):
             len(tracklist)), autodelete=autodelete)
 
     track_info = tracklist[index]
-    title = track_info.title
-    if len(title) > TITLE_LIMIT:
-        title = title[:TITLE_LIMIT] + ' **...**'
+    title = _truncate_title(track_info.title)
 
     time_ago = time.time() - track_info.timestamp
     added_by_text = "Added by <@{}> {} ago.".format(
@@ -2097,10 +2110,10 @@ async def setup_player(bot, context):
                     autodelete=autodelete)
             track_index -= 1
             track = tracklist[track_index]
-        elif context.arguments[0]:  #  Query given (add track)
+        elif context.arguments[0]:  # Query given (add track)
             adding_track = True
             add_track_response = await add_track(bot, context)
-            add_track_response.message_type = MessageTypes.PERMANENT
+            # add_track_response.message_type = MessageTypes.PERMANENT
             await bot.handle_response(context.message, add_track_response, context=context)
 
     # Check autoplay permissions
