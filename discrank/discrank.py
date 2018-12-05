@@ -405,7 +405,7 @@ async def _get_summoner(bot, name, region, force_update=False):
                 'tier': league['tier'].title(),
                 'rank': league['rank'],
                 'lp': league['leaguePoints'],
-                'inactive': league['inactive'],
+                'inactive': league.get('inactive'),
                 'shorthand_tier': league['tier'][0] + DIVISIONS[league['rank']]
             })
             json_data['total_games'] += league['wins'] + league['losses']
