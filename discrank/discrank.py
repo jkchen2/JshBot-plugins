@@ -1312,11 +1312,13 @@ async def _get_static_data(bot):
     """Get static data returned as a tuple."""
     try:
         #assert False  # TODO: Remove debug
+        version = (await future(
+            WATCHER.data_dragon.versions_for_region, 'na1'))['v']
         champions = (await future(
-            WATCHER.static_data.champions, 'na1', data_by_id='true'))['data']
+            WATCHER.data_dragon.champions, version))['data']
         spells = (await future(
-            WATCHER.static_data.summoner_spells, 'na1', data_by_id='true'))['data']
-        icons = await future(WATCHER.static_data.profile_icons, 'na1')
+            WATCHER.data_dragon.summoner_spells, version))['data']
+        icons = await future(WATCHER.data_dragon.profile_icons, version)
         cache_dictionary = { 'champions': champions, 'spells': spells, 'icons': icons }
         cache_bytes = io.StringIO()
         json.dump(cache_dictionary, cache_bytes, indent=4)
