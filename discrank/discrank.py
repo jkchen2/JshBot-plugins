@@ -23,7 +23,7 @@ from jshbot.exceptions import BotException, ConfiguredBotException, ErrorTypes
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.2.1'
+__version__ = '0.2.2'
 CBException = ConfiguredBotException('Riot API plugin')
 uses_configuration = True
 
@@ -318,6 +318,13 @@ async def _show_summoner_information(bot, context, response, result, timed_out):
     return False
 
 
+def _shorthand_tier(league):
+    tier, rank = league['tier'], league['rank']
+    if tier in EXCEPTION_RANKS:  # Tiers without a rank
+        return EXCEPTION_RANKS[tier]
+    return tier[0] + DIVISIONS[rank]
+
+
 async def _get_summoner(bot, name, region, force_update=False):
     """Gets the cached summoner information. Returns None if not found."""
     if ':' in name:  # Custom region
@@ -406,7 +413,7 @@ async def _get_summoner(bot, name, region, force_update=False):
                 'rank': league['rank'],
                 'lp': league['leaguePoints'],
                 'inactive': league.get('inactive'),
-                'shorthand_tier': league['tier'][0] + DIVISIONS[league['rank']]
+                'shorthand_tier': _shorthand_tier(league)
             })
             json_data['total_games'] += league['wins'] + league['losses']
         if not json_data['rank']:  # Solo ranked data missing
@@ -1106,13 +1113,13 @@ async def challenge(bot, context):
     for summoner, champion in zip(summoners, champions):
         if summoner.tier == 'Unranked':
             rank_points.append(CHALLENGE_POINTS['Unranked'])
-        elif summoner.tier in ('Master', 'Challenger'):
-            rank_points.append(CHALLENGE_POINTS['Master/Challenger'] + summoner.lp/87)
+        elif summoner.tier in ('Master', 'Grandmaster', 'Challenger'):
+            rank_points.append(CHALLENGE_POINTS['Master/Grandmaster/Challenger'] + summoner.lp/87)
         else:
             rank_points.append(CHALLENGE_POINTS[summoner.tier][summoner.rank])
         mastery_futures.append(future(
             WATCHER.champion_mastery.by_summoner_by_champion,
-            PLATFORMS[summoner.region], summoner.summoner_id, champion['id']))
+            PLATFORMS[summoner.region], summoner.summoner_id, champion['key']))
 
     total = 0
     scores = []
@@ -1143,7 +1150,7 @@ async def challenge(bot, context):
         rows.append('`[{: <2}]` | [{}]({})'.format(
             summoner.shorthand_tier, summoner.summoner_name, opgg_link))
         rows.append('[{0}](# "Level: {1} | Points: {2}") ( {1} | {2} )'.format(
-            CHAMPION_EMOJIS.get(champion['id'], UNKNOWN_EMOJI), *mastery))
+            CHAMPION_EMOJIS.get(int(champion['key']), UNKNOWN_EMOJI), *mastery))
         rows.append('{0}Win chance: {1:.2f}%{0}'.format(
             '**' if score == max(scores) else '', 100 * score / total))
 
@@ -1343,9 +1350,9 @@ async def _get_static_data(bot):
             raise CBException(
                 "Fallback static data cache not found.", error_type=ErrorTypes.STARTUP)
 
-    champions_named = dict((v['key'].lower(), v) for _, v in champions.items())
+    champions_named = {v['name'].lower(): v for _, v in champions.items()}
     champions.update(champions_named)
-    spells_named = dict((v['name'].lower(), v) for _, v in spells.items())
+    spells_named = {v['name'].lower(): v for _, v in spells.items()}
     spells.update(spells_named)
     return (champions, spells, icons['version'])
 
@@ -1526,25 +1533,37 @@ PLATFORMS = {
     'jp':   'jp1'
 }
 
-RANK_ICONS = {
-    'Challenger':   'https://i.imgur.com/war3JkZ.png',
-    'Master':       'https://i.imgur.com/SftcjBK.png',
-    'Diamond':      'https://i.imgur.com/tE4UXbe.png',
-    'Platinum':     'https://i.imgur.com/EYAWQ2P.png',
-    'Gold':         'https://i.imgur.com/y4CgEY8.png',
-    'Silver':       'https://i.imgur.com/KzsC03C.png',
-    'Bronze':       'https://i.imgur.com/lfT1lfr.png',
-    'Unranked':     'https://i.imgur.com/9ENx4rB.png'
+EXCEPTION_RANKS = {
+    'CHALLENGER': 'C',
+    'GRANDMASTER': 'GM',
+    'MASTER': 'M'
 }
+
+RANK_ICONS = {
+    'Challenger':   '530127467692687361/Challenger_Emblem.png',
+    'Grandmaster':  '530127473506254888/Grandmaster_Emblem.png',
+    'Master':       '530127478216196127/Master_Emblem.png',
+    'Diamond':      '530127470167326720/Diamond_Emblem.png',
+    'Platinum':     '530127479717888008/Platinum_Emblem.png',
+    'Gold':         '530127472252026880/Gold_Emblem.png',
+    'Silver':       '530127481945194518/Silver_Emblem.png',
+    'Bronze':       '530127466375938059/Bronze_Emblem.png',
+    'Iron':         '530127475762790432/Iron_Emblem.png',
+    'Unranked':     '530128709986811904/old_unranked.png'
+}
+URL_PREFIX = 'https://cdn.discordapp.com/attachments/138921282434498560/'
+RANK_ICONS = {k: URL_PREFIX + v for k, v in RANK_ICONS.items()}
 
 RANK_COLORS = {
     'Challenger':   discord.Color(0x2aa3d8),
-    'Master':       discord.Color(0x4ae4d5),
+    'Grandmaster':  discord.Color(0xf22c30),
+    'Master':       discord.Color(0xff1aff),
     'Diamond':      discord.Color(0x1d66b2),
     'Platinum':     discord.Color(0xcbdde4),
     'Gold':         discord.Color(0xe8d270),
     'Silver':       discord.Color(0x8ca099),
     'Bronze':       discord.Color(0xad7b4a),
+    'Iron':         discord.Color(0x5e5656),
     'Unranked':     discord.Embed.Empty
 }
 
@@ -1590,40 +1609,41 @@ REGION_EMOJIS = {
 CHALLENGE_POINTS = {
     'Unranked': 2.66,
 
+    'Iron': {
+        'IV':   1.00,
+        'III':  1.33,
+        'II':   1.66,
+        'I':    2.00
+    },
     'Bronze': {
-        'V':    1.00,
-        'IV':   1.33,
-        'III':  1.66,
-        'II':   2.00,
-        'I':    2.33
+        'IV':   2.33,
+        'III':  2.66,
+        'II':   3.00,
+        'I':    3.33
     },
     'Silver': {
-        'V':    2.66,
-        'IV':   3.00,
-        'III':  3.33,
-        'II':   3.66,
-        'I':    4.00
+        'IV':   3.66,
+        'III':  4.00,
+        'II':   4.33,
+        'I':    4.66
     },
     'Gold': {
-        'V':    4.33,
-        'IV':   4.66,
-        'III':  5.00,
-        'II':   5.33,
-        'I':    5.66
+        'IV':   5.00,
+        'III':  5.33,
+        'II':   5.66,
+        'I':    6.00
     },
     'Platinum': {
-        'V':    6.0,
         'IV':   6.33,
         'III':  6.66,
         'II':   7.00,
         'I':    7.33
     },
     'Diamond': {
-        'V':    7.5,
-        'IV':   8,
-        'III':  8.5,
-        'II':   9,
-        'I':    9.5
+        'IV':   7.5,
+        'III':  8,
+        'II':   8.5,
+        'I':    9
     },
-    'Master/Challenger': 10.2
+    'Master/Grandmaster/Challenger': 10.2
 }
