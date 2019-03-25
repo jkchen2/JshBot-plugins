@@ -70,7 +70,7 @@ async def get_response(bot, context):
     try:
         update_channel = bot.get_channel(configurations.get(bot, __name__, 'update_channel'))
         message_id = configurations.get(bot, __name__, 'update_message')
-        update_message = await update_channel.get_message(message_id)
+        update_message = await update_channel.fetch_message(message_id)
         await update_message.edit(content='', embed=embed)
     except Exception as e:
         raise CBException("Failed to edit the update message.", e=e)
