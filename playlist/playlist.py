@@ -1625,7 +1625,7 @@ async def import_tracklist(bot, context):
             file_url = context.message.attachments[0].url
             tracklist_file = await utilities.download_url(bot, file_url, use_fp=True)
 
-            tracklist_data = yaml.load(tracklist_file)
+            tracklist_data = yaml.safe_load(tracklist_file)
             if isinstance(tracklist_data, str):  # Read lines instead
                 tracklist_file.seek(0)
                 tracklist_blob = tracklist_file.read().decode('utf8').replace('\r\n', '\n').strip()

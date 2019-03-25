@@ -736,7 +736,7 @@ async def tag_import(bot, context):
     file_url = context.message.attachments[0].url
     database_file = await utilities.download_url(bot, file_url, use_fp=True)
     try:
-        tag_data = yaml.load(database_file)
+        tag_data = yaml.safe_load(database_file)
     except Exception as e:
         raise CBException("Failed to parse the database file.", e=e)
 
