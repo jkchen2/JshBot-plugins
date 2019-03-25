@@ -70,7 +70,7 @@ Summoner = namedtuple(
         'account_id', 'summoner_id', 'summoner_name', 'search_name', 'region',
         'level', 'revision_date', 'icon', 'last_updated', 'tier', 'shorthand_tier',
         'missing_data', 'wins', 'losses', 'rank', 'lp', 'inactive', 'top_champions',
-        'other_positions', 'total_games'
+        'other_positions', 'total_games', 'solo_positions', 'position'
     ]
 )
 
@@ -140,8 +140,8 @@ def get_commands(bot):
 def get_templates(bot):
     return {
         'lol_summoner_template': (
-            "account_id         bigint PRIMARY KEY,"
-            "summoner_id        bigint,"
+            "account_id         text PRIMARY KEY,"
+            "summoner_id        text,"
             "search_name        text,"
             "region             lol_region,"
             "data               json,"
@@ -155,7 +155,7 @@ def get_templates(bot):
 
         'lol_raw_match_template': (
             "match_id           bigint,"
-            "account_id         bigint,"
+            "account_id         text,"
             "ranked             bool,"
             "region             lol_region,"
             "data               json,"
@@ -222,15 +222,20 @@ async def _build_summoner_embed(bot, summoner):
     embed.set_author(name=summoner.summoner_name, url=opgg_link, icon_url=profile_icon)
     embed.set_thumbnail(url=RANK_ICONS[summoner.tier])
 
+    # Stat display template
+    template = '{0[tier]} {0[rank]}\nLP: {0[lp]}\nW/L: {0[wins]}/{0[losses]} ({1:.01f}%)'
+
     if 'league' in summoner.missing_data:
         ranked_info_display = 'Unranked\nLevel: {}'.format(summoner.level)
     else:
-        template = '{0.tier} {0.rank}\nLP: {0.lp}\nW/L: {0.wins}/{0.losses} ({1:.01f}%)'
-        wins, losses = summoner.wins, summoner.losses
-        ranked_info_display = template.format(summoner, (wins / max(wins + losses, 1)) * 100)
+        solo_displays = []
+        for position in summoner.solo_positions:
+            wins, losses = position['wins'], position['losses']
+            solo_displays.append(template.format(position, (wins / max(wins + losses, 1)) * 100))
+        ranked_info_display = '\n'.join(solo_displays)
+
     embed.add_field(name="Solo Queue", value=ranked_info_display)
 
-    template = '{0[tier]} {0[rank]}\nLP: {0[lp]}\nW/L: {0[wins]}/{0[losses]} ({1:.01f}%)'
     for index, position_name in enumerate(('Flex 5v5', 'Flex 3v3')):
         position = summoner.other_positions[index]
         if position:
@@ -296,8 +301,7 @@ async def _build_summoner_embed(bot, summoner):
     else:
         time_ago = 'just now'
     embed.set_footer(
-        text="{} | ID {} | AID {} | Updated {}".format(
-            summoner.region.upper(), summoner.summoner_id, summoner.account_id, time_ago),
+        text="{} | Updated {}".format(summoner.region.upper(), time_ago),
         icon_url=REGION_IMAGES.get(summoner.region, UNKNOWN_EMOJI_URL))
     return embed
 
@@ -344,7 +348,7 @@ async def _get_summoner(bot, name, region, force_update=False):
         input_args=[search_name, region]).fetchone()
 
     # Check if the entry exists and needs to be refreshed, or has expired
-    if not result or (time.time() - result.last_updated > 24*60*60) or force_update:
+    if not result or (time.time() - result.last_updated > 24 * 60 * 60) or force_update:
         logger.debug("Summoner NOT found in cache (or expired or forced).")
         try:
             summoner_info = await future(WATCHER.summoner.by_name, PLATFORMS[region], name)
@@ -370,6 +374,7 @@ async def _get_summoner(bot, name, region, force_update=False):
             'summoner_name': summoner_name,
             'search_name': search_name,
             'region': region,
+            'position': None,
             'level': summoner_info['summonerLevel'],
             'revision_date': summoner_info['revisionDate'],
             'icon': summoner_info['profileIconId'],
@@ -383,6 +388,7 @@ async def _get_summoner(bot, name, region, force_update=False):
             'lp': None,
             'inactive': None,
             'top_champions': None,
+            'solo_positions': [],  # Top 2 solo positions
             'other_positions': [{}, {}],  # Flex 5:5, Flex 3:3
             'missing_data': []
         }
@@ -399,9 +405,11 @@ async def _get_summoner(bot, name, region, force_update=False):
             handle_lol_exception(e)
 
         # Parse league data:
+        all_solo_positions = []
         for league in info[0]:
-            if league['queueType'] == 'RANKED_SOLO_5x5':
-                to_update = json_data
+            solo_position = league['queueType'] == 'RANKED_SOLO_5x5'
+            if solo_position:
+                to_update = {}
             elif league['queueType'] == 'RANKED_FLEX_SR':  # Flex 5:5
                 to_update = json_data['other_positions'][0]
             elif league['queueType'] == 'RANKED_FLEX_TT':  # Flex 3:3
@@ -413,9 +421,22 @@ async def _get_summoner(bot, name, region, force_update=False):
                 'rank': league['rank'],
                 'lp': league['leaguePoints'],
                 'inactive': league.get('inactive'),
-                'shorthand_tier': _shorthand_tier(league)
+                'shorthand_tier': _shorthand_tier(league),
+                'position': league['position'].title() or 'position n/a'
             })
             json_data['total_games'] += league['wins'] + league['losses']
+
+            if solo_position:
+                rank_score = (
+                    RANK_ORDER.index(league['tier']) * 10 +
+                    DIVISION_ORDER.index(league['rank'])  # Not confusing at all
+                )
+                all_solo_positions.append((rank_score, to_update))
+
+        # Get the best 2 solo positions and set overall data with the best one
+        if all_solo_positions:
+            json_data['solo_positions'] = [it for _, it in sorted(all_solo_positions)[:2]]
+            json_data.update(json_data['solo_positions'][0])
         if not json_data['rank']:  # Solo ranked data missing
             json_data['missing_data'].append('league')
 
@@ -425,7 +446,7 @@ async def _get_summoner(bot, name, region, force_update=False):
         if not top_champions:
             json_data['missing_data'].append('mastery')
         else:
-            json_data.update({ 'top_champions': top_champions })
+            json_data.update({'top_champions': top_champions})
         all_data += [Json(json_data), current_time]
 
         result = json_data
@@ -977,7 +998,7 @@ async def _matchlist_menu(bot, context, response, result, timed_out):
 
 def _build_matchlist_embed(bot, summoner, entries, page_index):
     """Builds the matchlist embed for the given entries and page"""
-    split_entries = [entries[it:it+5] for it in range(0, len(entries), 5)]
+    split_entries = [entries[it:it + 5] for it in range(0, len(entries), 5)]
     max_index = len(split_entries) - 1
     page_index = max(min(page_index, max_index), 0)
     columns = list(zip(*split_entries[page_index]))
@@ -1326,7 +1347,7 @@ async def _get_static_data(bot):
         spells = (await future(
             WATCHER.data_dragon.summoner_spells, version))['data']
         icons = await future(WATCHER.data_dragon.profile_icons, version)
-        cache_dictionary = { 'champions': champions, 'spells': spells, 'icons': icons }
+        cache_dictionary = {'champions': champions, 'spells': spells, 'icons': icons}
         cache_bytes = io.StringIO()
         json.dump(cache_dictionary, cache_bytes, indent=4)
         utilities.add_temporary_file(bot, cache_bytes, 'discrank_static_cache.json')
@@ -1567,7 +1588,24 @@ RANK_COLORS = {
     'Unranked':     discord.Embed.Empty
 }
 
-DIVISIONS = {"V": "5", "IV": "4", "III": "3", "II": "2", "I": "1"}
+RANK_ORDER = [
+    'CHALLENGER',
+    'GRANDMASTER',
+    'MASTER',
+    'DIAMOND',
+    'PLATINUM',
+    'GOLD',
+    'SILVER',
+    'BRONZE',
+    'IRON',
+    'UNRANKED'
+]
+
+DIVISION_ORDER = [
+    'I', 'II', 'III', 'IV', 'V'
+]
+
+DIVISIONS = dict((k, str(v)) for k, v in zip(DIVISION_ORDER, range(1, 6)))
 
 # Set on startup
 WATCHER, CHAMPIONS, SPELLS = None, None, None
