@@ -10,7 +10,7 @@ from jshbot.commands import (
         Command, SubCommand, Shortcut, ArgTypes,
         Arg, Opt, Response, Attachment, MessageTypes)
 
-__version__ = '0.1.1'
+__version__ = '0.1.2'
 CBException = ConfiguredBotException('Pride flag creator')
 uses_configuration = False
 
@@ -67,6 +67,10 @@ def get_commands(bot):
                     always_include=True, default=0, quotes_recommended=False,
                     convert=int, check=lambda b, m, v, *a: 0 <= v <= 360,
                     check_error='Rotation angle must be between 0 and 360 inclusive.'),
+                Opt('blur', attached='pixels', optional=True, default=0,
+                    always_include=True, convert=int, group='style',
+                    quotes_recommended=False, check=lambda b, m, v, *a: 0 <= v <= 30,
+                    check_error='Blur value must be between 0 and 30 inclusive.'),
                 Arg('flag type', convert=FlagConverter()),
                 Arg('user or URL', argtype=ArgTypes.MERGED_OPTIONAL, group='user or image'),
                 Attachment('Image', optional=True, group='user or image'),
@@ -88,6 +92,10 @@ def get_commands(bot):
                     always_include=True, default=0, quotes_recommended=False,
                     convert=int, check=lambda b, m, v, *a: 0 <= v <= 360,
                     check_error='Rotation angle must be between 0 and 360 inclusive.'),
+                Opt('blur', attached='pixels', optional=True, default=0,
+                    always_include=True, convert=int, group='style',
+                    quotes_recommended=False, check=lambda b, m, v, *a: 0 <= v <= 30,
+                    check_error='Blur value must be between 0 and 30 inclusive.'),
                 Arg('flag type', convert=FlagConverter()),
                 Arg('user or URL', argtype=ArgTypes.MERGED_OPTIONAL, group='user or image'),
                 Attachment('Image', optional=True, group='user or image'),
@@ -95,10 +103,14 @@ def get_commands(bot):
                 function=pride_circle),
             SubCommand(
                 Opt('fill'),
-                Opt('rotation', attached='angle', optional=True,
+                Opt('rotation', attached='angle', optional=True, group='style',
                     always_include=True, default=0, quotes_recommended=False,
                     convert=int, check=lambda b, m, v, *a: 0 <= v <= 360,
                     check_error='Rotation angle must be between 0 and 360 inclusive.'),
+                Opt('blur', attached='pixels', optional=True, default=0,
+                    always_include=True, convert=int, group='style',
+                    quotes_recommended=False, check=lambda b, m, v, *a: 0 <= v <= 30,
+                    check_error='Blur value must be between 0 and 30 inclusive.'),
                 Arg('flag type', convert=FlagConverter()),
                 Arg('user or URL', argtype=ArgTypes.MERGED_OPTIONAL, group='user or image'),
                 Attachment('Image', optional=True, group='user or image'),
@@ -198,6 +210,12 @@ async def _generate_pride_flag(bot, flag_data, size):
                         tuple(int(it * size[1]) for it in part['end'])
                     ],
                     fill=tuple(part['color']))
+            elif part_type == 'polygon':
+                points = []
+                for point_pair in part['points']:
+                    points.append(
+                        tuple(int(point_pair[it] * size[it]) for it in range(2)))
+                flag_draw.polygon(points, fill=tuple(part['color']))
             else:
                 raise CBException('Invalid structure type: {}'.format(part_type))
 
@@ -270,10 +288,17 @@ def _rotate_flag(flag, rotation):
     return flag.crop([offset, offset, offset + original_size[0], offset + original_size[0]])
 
 
-def _process_overlay(image, flag, opacity=0.5, mask=False, rotation=0):
+def _blur_flag(flag, blur):
+    """Blurs the flag by the given number of pixels."""
+    return flag.filter(ImageFilter.GaussianBlur(radius=blur))
+
+
+def _process_overlay(image, flag, opacity=0.5, mask=False, rotation=0, blur=0):
     """Processes the overlay method."""
     if rotation:
         flag = _rotate_flag(flag, rotation)
+    if blur:
+        flag = _blur_flag(flag, blur)
     combined = image.copy()
     combined.paste(flag, mask=Image.new('L', image.size, int(255*opacity)))
     if mask:
@@ -290,7 +315,7 @@ async def pride_overlay(bot, context):
     flag = await _generate_pride_flag(bot, arguments[0][1], image.size)
     result = _process_overlay(
         image, flag, opacity=options['opacity'],
-        mask='mask' in options, rotation=options['rotation'])
+        mask='mask' in options, rotation=options['rotation'], blur=options['blur'])
     discord_file = _file_from_image(result)
     embed = discord.Embed(
         title='{} pride flag overlay | {:.2f}% transparency | {}masking'.format(
@@ -301,10 +326,12 @@ async def pride_overlay(bot, context):
     return Response(file=discord_file, embed=embed, message_type=MessageTypes.PERMANENT)
 
 
-def _process_circle(image, flag, size=1, resize=False, full=False, rotation=0):
+def _process_circle(image, flag, size=1, resize=False, full=False, rotation=0, blur=0):
     """Processes the circle (ring) method"""
     if rotation:
         flag = _rotate_flag(flag, rotation)
+    if blur:
+        flag = _blur_flag(flag, blur)
     original = image.copy()
 
     # Upsample image to ~1000x1000 for better circle/ring definition
@@ -352,7 +379,7 @@ async def pride_circle(bot, context):
     flag = await _generate_pride_flag(bot, arguments[0][1], image.size)
     result = _process_circle(
         image, flag, size=options['size'], resize='resize' in options,
-        full='full' in options, rotation=options['rotation'])
+        full='full' in options, rotation=options['rotation'], blur=options['blur'])
     discord_file = _file_from_image(result)
     embed = discord.Embed(
         title='{} pride flag circle | size {} | {} | {} background'.format(
@@ -363,10 +390,12 @@ async def pride_circle(bot, context):
     return Response(file=discord_file, embed=embed, message_type=MessageTypes.PERMANENT)
 
 
-def _process_fill(image, flag, rotation=0):
+def _process_fill(image, flag, rotation=0, blur=0):
     """Processes the fill method."""
     if rotation:
         flag = _rotate_flag(flag, rotation)
+    if blur:
+        flag = _blur_flag(flag, blur)
     combined = flag.copy()
     combined.paste(image, mask=image)
     return combined
@@ -376,7 +405,8 @@ async def pride_fill(bot, context):
     """Fills the given image's background with the flag."""
     image = await _get_image(bot, context=context)
     flag = await _generate_pride_flag(bot, context.arguments[0][1], image.size)
-    result = _process_fill(image, flag, rotation=context.options['rotation'])
+    result = _process_fill(
+        image, flag, rotation=context.options['rotation'], blur=context.options['blur'])
     discord_file = _file_from_image(result)
     embed = discord.Embed(title='{} pride flag fill'.format(context.arguments[0][1]['title']))
     embed.set_image(url='attachment://result.png')
@@ -411,6 +441,19 @@ async def pride_interactive(bot, context):
         return [
             response.path_process(*response.process_args, **response.process_kwargs, rotation=it)
             for it in rotations]
+
+    blur_options = [0, 5, 10, 15]
+    def _generate_blurred_images(response):
+        """Generates blurred images from the response's args and kwargs."""
+        response.state['path'] = 'blur'
+        response.embed.set_field_at(
+            0, name='Blur style options',
+            value='Blur radius in pixels:\n{}'.format(' | '.join(
+                '{} {} px'.format(utilities.NUMBER_EMOJIS[index + 1], it)
+                for index, it in enumerate(blur_options))))
+        return [
+            response.path_process(*response.process_args, **response.process_kwargs, blur=it)
+            for it in blur_options]
 
     async def _menu(bot, context, response, result, timed_out):
         if timed_out:
@@ -517,8 +560,13 @@ async def pride_interactive(bot, context):
             image = _generate_image_options(*images)
 
         elif path == 'rotation':
-            path = 'done'
             response.process_kwargs['rotation'] = rotations[result_index]
+            images = _generate_blurred_images(response)
+            image = _generate_image_options(*images)
+
+        elif path == 'blur':
+            path = 'done'
+            response.process_kwargs['blur'] = blur_options[result_index]
             image = response.path_process(*response.process_args, **response.process_kwargs)
             response.embed.remove_field(0)
             response.embed.description = "Here is the final result:"
@@ -537,7 +585,18 @@ async def pride_interactive(bot, context):
         else:
             converter = FlagConverter(
                 include_flag_list=False, check_attachments=True)
-            flag_key, flag_data = converter(bot, result, result.content)
+            try:
+                flag_key, flag_data = converter(bot, result, result.content)
+            except BotException as e:
+                response.embed.description = (
+                    "{} Type one of the flags listed below:\n{}").format(
+                        e.error_details, ', '.join(_get_available_flags()))
+                await response.message.edit(embed=response.embed)
+                try:
+                    await result.delete()
+                except:  # Ignore permissions errors
+                    pass
+                return True
             if flag_key == 'url':
                 response.embed.description = "Please wait..."
                 response.embed.set_field_at(0, name='\u200b', value='\u200b')
@@ -574,7 +633,11 @@ async def pride_interactive(bot, context):
         title=':gay_pride_flag: Pride flag avatar creator', description=description)
     embed.add_field(
         name='\u200b', value="To use a custom flag, paste the image URL below or upload it.")
-    extra = { 'event': 'message', 'kwargs': {'check': lambda m: m.author == context.author} }
+    extra = {
+        'event': 'message',
+        'loop': True,
+        'kwargs': {'check': lambda m: m.author == context.author}
+    }
     return Response(
         embed=embed, message_type=MessageTypes.WAIT,
         extra=extra, extra_function=_flag_input,
