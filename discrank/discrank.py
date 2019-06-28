@@ -23,7 +23,7 @@ from jshbot.exceptions import BotException, ConfiguredBotException, ErrorTypes
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.2.2'
+__version__ = '0.2.3'
 CBException = ConfiguredBotException('Riot API plugin')
 uses_configuration = True
 
@@ -318,7 +318,7 @@ async def _show_summoner_information(bot, context, response, result, timed_out):
     except Exception as e:
         raise CBException("Failed to update summoner information.", e=e)
     embed = await _build_summoner_embed(bot, summoner)
-    await response.message.edit(content= '', embed=embed)
+    await response.message.edit(content='', embed=embed)
     return False
 
 
@@ -395,7 +395,7 @@ async def _get_summoner(bot, name, region, force_update=False):
 
         # call league-v3 (use summoner ID)
         league_future = future(
-            WATCHER.league.positions_by_summoner, PLATFORMS[region], summoner_id)
+            WATCHER.league.by_summoner, PLATFORMS[region], summoner_id)
         mastery_future = future(
             WATCHER.champion_mastery.by_summoner, PLATFORMS[region], summoner_id)
         try:
@@ -421,8 +421,7 @@ async def _get_summoner(bot, name, region, force_update=False):
                 'rank': league['rank'],
                 'lp': league['leaguePoints'],
                 'inactive': league.get('inactive'),
-                'shorthand_tier': _shorthand_tier(league),
-                'position': league['position'].title() or 'position n/a'
+                'shorthand_tier': _shorthand_tier(league)
             })
             json_data['total_games'] += league['wins'] + league['losses']
 
