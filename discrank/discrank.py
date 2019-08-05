@@ -408,9 +408,8 @@ async def _get_summoner(bot, name, region, force_update=False):
         all_solo_positions = []
         for league in info[0]:
             solo_position = league['queueType'] == 'RANKED_SOLO_5x5'
-            if solo_position:
-                to_update = {}
-            elif league['queueType'] == 'RANKED_FLEX_SR':  # Flex 5:5
+            to_update = {}
+            if league['queueType'] == 'RANKED_FLEX_SR':  # Flex 5:5
                 to_update = json_data['other_positions'][0]
             elif league['queueType'] == 'RANKED_FLEX_TT':  # Flex 3:3
                 to_update = json_data['other_positions'][1]
