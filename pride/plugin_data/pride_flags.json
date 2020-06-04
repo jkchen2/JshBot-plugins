@@ -1,6 +1,6 @@
 {
     "gay": {
-        "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/68/Gay_flag.svg/512px-Gay_flag.svg.png",
+        "image": "https://i.imgur.com/YjxggcA.png",
         "title": "Gay",
         "substitutions": [ "homosexual", "lgbt", "pride" ],
         "structure": [
@@ -13,7 +13,7 @@
         ]
     },
     "bi": {
-        "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3e/Bi_flag.svg/512px-Bi_flag.svg.png",
+        "image": "https://i.imgur.com/iUNUXxw.png",
         "title": "Bisexual",
         "substitutions": [ "bisexual" ],
         "structure": [
@@ -23,7 +23,7 @@
         ]
     },
     "pan": {
-        "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/59/Pansexuality_flag.svg/512px-Pansexuality_flag.svg.png",
+        "image": "https://i.imgur.com/NR1UXKK.png",
         "title": "Pansexual",
         "substitutions": [ "pansexual" ],
         "structure": [
@@ -33,7 +33,7 @@
         ]
     },
     "ace": {
-        "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/Asexual_flag.svg/512px-Asexual_flag.svg.png",
+        "image": "https://i.imgur.com/gWatcfp.png",
         "title": "Asexual",
         "substitutions": [ "asexual" ],
         "structure": [
@@ -44,7 +44,7 @@
         ]
     },
     "trans": {
-        "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b0/Transgender_Pride_flag.svg/512px-Transgender_Pride_flag.svg.png",
+        "image": "https://i.imgur.com/GDqjFNP.png",
         "title": "Transgender",
         "substitutions": [ "transgender" ],
         "structure": [
@@ -56,7 +56,7 @@
         ]
     },
     "genderqueer": {
-        "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1d/Genderqueer_flag-pride.svg/512px-Genderqueer_flag-pride.svg.png",
+        "image": "https://i.imgur.com/YvWw7wg.png",
         "title": "Genderqueer",
         "substitutions": [],
         "structure": [
@@ -66,7 +66,7 @@
         ]
     },
     "nonbinary": {
-        "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/75/Nonbinary_flag.svg/512px-Nonbinary_flag.svg.png",
+        "image": "https://i.imgur.com/NJk3iPV.png",
         "title": "Non-binary",
         "substitutions": [ "nb" ],
         "structure": [
@@ -77,7 +77,7 @@
         ]
     },
     "lesbian": {
-        "image": "https://cdn.discordapp.com/attachments/220327974434504705/454141348589862923/result.png",
+        "image": "https://i.imgur.com/jzyzOZl.png",
         "title": "Lesbian",
         "substitutions": [ "lipsticklesbian" ],
         "structure": [
@@ -91,7 +91,7 @@
         ]
     },
     "ally": {
-        "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b1/Straight_Ally_flag.svg/512px-Straight_Ally_flag.svg.png",
+        "image": "https://i.imgur.com/HOB2cPs.png",
         "title": "Ally",
         "substitutions": [ "straight", "straightally" ],
         "structure": [
