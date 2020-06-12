@@ -507,8 +507,8 @@ async def pride_interactive(bot, context):
             # Finished selecting mask. Now selecting opacity
             if stage == 0:
                 response.process_kwargs['mask'] = result_index == 1
-                if result_index == 0:
-                    del opacity_list[-1]
+                if result_index == 0:  # non-mask overlay can have 33% opacity
+                    opacity_list = [0.25, 0.33, 0.5, 0.75]
                 images = [
                     _process_overlay(
                         *response.process_args, opacity=it, **response.process_kwargs)
