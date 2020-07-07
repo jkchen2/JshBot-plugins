@@ -196,7 +196,7 @@ async def check_warns(bot, message):
     """Checks for issued warnings."""
     if (not message.guild or
             message.guild.id != configurations.get(bot, __name__, 'guild_id') or
-            not message.content.lower().startswith('!warn ') or
+            not message.content.lower().startswith('.warn ') or
             not data.is_mod(bot, member=message.author) or
             'autolog.py' not in bot.plugins):
         return
