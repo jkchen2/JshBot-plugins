@@ -240,7 +240,7 @@ def _build_dump_data(bot, logs, log_channel, details=None):
                     'discriminator': edit.author.discriminator,
                     'bot': edit.author.bot,
                     'id': str(edit.author.id),
-                    'avatar': edit.author.avatar_url_as(static_format='png'),
+                    'avatar': str(edit.author.avatar_url_as(static_format='png')),
                     'joined': int(dt.timestamp())
                 }
 
