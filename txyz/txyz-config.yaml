@@ -1,0 +1,12 @@
+# Channel for receiving messages
+update_hours: 24
+main_bot: 000
+txyz_guild: 000
+comment_channel: 000
+data_channels:
+    text: 000
+    comment: 000
+    bot: 000
+    live: 000
+default_thought: ""
+default_footer: ""
