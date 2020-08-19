@@ -9,10 +9,11 @@ schedule_refresh_time: 300
 
 charity: "Doctors Without Borders"
 schedule_url: "https://gamesdonequick.com/schedule"
-api_url: "https://api.twitch.tv/kraken/streams/gamesdonequick"
-tracker_url: "https://gamesdonequick.com/tracker/23"
+api_url: "https://api.twitch.tv/helix/streams?user_login=gamesdonequick"
+tracker_url: "https://gamesdonequick.com/tracker/event/30"
 stream_url: "https://www.twitch.tv/gamesdonequick"
-donate_url: "https://gamesdonequick.com/tracker/donate/23"
+donate_url: "https://gamesdonequick.com/tracker/ui/donate/30"
 
-# Twitch API client ID
-client_id: ""
+# Twitch API client ID and secret
+twitch_client_id: ""
+twitch_client_secret: ""

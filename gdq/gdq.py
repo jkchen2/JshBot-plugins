@@ -1,6 +1,5 @@
 import asyncio
 import discord
-import json
 import requests
 import random
 import datetime
@@ -224,7 +223,7 @@ def _search_games(bot, search, guild_id=None, return_game=False):
     elif len(found_games) != 1:
         raise CBException(
             "Multiple games found:", '\n'.join(
-                ['{} ({})'.format(game['game'], game['type'])  for game in found_games]))
+                ['{} ({})'.format(game['game'], game['type']) for game in found_games]))
     elif return_game:
         return found_games[0]
     else:
@@ -246,30 +245,61 @@ async def _get_donation_data(bot):
     return (total_raised, total_donations, max_average)
 
 
-async def _get_status(bot, raised_only=False):
-    """Gets the stream status and information."""
+async def _set_twitch_token(bot):
+    """Sets the twitch oauth token in volatile data."""
+    params = {
+        'client_id': configurations.get(bot, __name__, 'twitch_client_id'),
+        'client_secret': configurations.get(bot, __name__, 'twitch_client_secret'),
+        'grant_type': 'client_credentials'
+    }
+    result = await utilities.future(
+        requests.post, 'https://id.twitch.tv/oauth2/token', params=params)
+    new_token = result.json()['access_token']
+    data.add(bot, __name__, 'twitch_oauth_token', new_token, volatile=True)
+    return new_token
+
+
+async def _failsafe_stream_data(bot):
+    """Returns the stream data and refreshes the oauth token if necessary."""
     api_url = configurations.get(bot, __name__, 'api_url')
-    client_id = configurations.get(bot, __name__, 'client_id')
-    if not raised_only:
-        try:
-            stream_json = (await utilities.future(
-                requests.get, api_url, headers={'Client-ID': client_id})).text
-            stream_dictionary = json.loads(stream_json)
-        except Exception as e:
-            raise CBException("Failed to retrieve stream data.", e=e)
-        stream_data = stream_dictionary['stream']
-        status = "Online" if stream_data else "Offline"
-        viewers = stream_data['viewers'] if stream_data else 0
-    donation_stats = await _get_buffered_donation_stats(bot)
-    if raised_only:
-        return "**Total raised:** {}".format(total_raised)
+    twitch_client_id = configurations.get(bot, __name__, 'twitch_client_id')
+    twitch_oauth_token = data.get(bot, __name__, 'twitch_oauth_token', volatile=True)
+
+    if not twitch_oauth_token:
+        twitch_oauth_token = await _set_twitch_token(bot)
+
+    async def _fetch_stream(oauth_token):
+        return await utilities.future(
+            requests.get, api_url, headers={
+                'Client-ID': twitch_client_id,
+                'Authorization': f'Bearer {oauth_token}'
+            })
+
+    result = await _fetch_stream(twitch_oauth_token)
+    if result.status_code == 401 and 'invalid_token' in result.headers.get('www-authenticate', ''):
+        twitch_oauth_token = await _set_twitch_token(bot)
+        result = await _fetch_stream(twitch_oauth_token)
+    if result.status_code != 200:
+        raise CBException(f"Failed to retrieve stream data ({result.status}).")
+    return result.json()
+
+
+async def _get_status(bot):
+    """Gets the stream status and information."""
+    stream_data = await _failsafe_stream_data(bot)
+    if stream_data['data']:
+        details = stream_data['data'][0]
+        status, viewers = "Online", details['viewer_count']
     else:
-        return (
-            "**Stream:** {0}\n"
-            "**Viewers:** {1}\n"
-            "**Total raised:** {2}\n"
-            "**Total donations:** {3}\n"
-            "**Max / Average donation:** {4}").format(status, viewers, *donation_stats)
+        status, viewers = "Offline", 0
+
+    donation_stats = await _get_buffered_donation_stats(bot)
+    return (
+        "**Stream:** {0}\n"
+        "**Viewers:** {1}\n"
+        "**Total raised:** {2}\n"
+        "**Total donations:** {3}\n"
+        "**Max / Average donation:** {4}").format(status, viewers, *donation_stats)
 
 
 async def _set_debug_weeks(bot, weeks):
