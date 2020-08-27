@@ -18,7 +18,7 @@ from jshbot.exceptions import BotException, ConfiguredBotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.2.5'
+__version__ = '0.2.6'
 uses_configuration = True
 CBException = ConfiguredBotException('Tags')
 
@@ -908,9 +908,8 @@ async def _play_sound_tag(bot, tag, url, voice_channel, elevation=0, delay=30):
         sound_file = await data.add_to_cache(bot, download_url, name=url)
 
     # TODO: Check ffmpeg options?
-    #ffmpeg_options = '-protocol_whitelist "file,http,https,tcp,tls"'
-    #audio_source = discord.FFmpegPCMAudio(sound_file, before_options=ffmpeg_options)
-    audio_source = discord.FFmpegPCMAudio(sound_file)
+    ffmpeg_options = '-protocol_whitelist "file,crypto,http,https,tcp,tls"'
+    audio_source = discord.FFmpegPCMAudio(sound_file, before_options=ffmpeg_options)
     audio_source = discord.PCMVolumeTransformer(audio_source, volume=tag.volume)
     await utilities.join_and_ready(bot, voice_channel, is_mod=elevation >= 1)
     try:
