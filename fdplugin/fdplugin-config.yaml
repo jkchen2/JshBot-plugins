@@ -7,7 +7,7 @@ reddit_client_secret: ''
 reddit_user_agent: ''
 
 # Verification period (days)
-verification_period: 7
+verification_period: 5
 
 # Reddit karma limit for Reddit submissions and comments
 submission_karma_limit: 50
