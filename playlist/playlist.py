@@ -20,7 +20,7 @@ from jshbot.exceptions import ConfiguredBotException, BotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.3.9'
+__version__ = '0.3.10'
 CBException = ConfiguredBotException('Music playlist')
 uses_configuration = True
 
@@ -285,7 +285,7 @@ class MusicPlayer():
                 self._track_timer(*self._get_delay(config_update=True)))
 
     async def _connect(self, autoplay=False, track_index=None):
-        is_mod = data.is_mod(self.bot, self.guild, self.author.id)
+        is_mod = data.is_mod(self.bot, member=self.author)
         try:
             self.voice_client = await utilities.join_and_ready(
                 self.bot, self.voice_channel, is_mod=is_mod, reconnect=True)
@@ -1183,7 +1183,7 @@ class MusicPlayer():
                     if self.tracklist:
                         if self.tracklist_time != self.tracklist_update_time:
                             self.tracklist_time = self.tracklist_update_time
-                            tracklist_string = _build_tracklist(
+                            tracklist_string = await _build_tracklist(
                                 self.bot, self.guild, self.tracklist)
                             tracklist_file = utilities.get_text_as_file(tracklist_string)
                             url = await utilities.upload_to_discord(
@@ -1272,27 +1272,24 @@ class MusicPlayer():
 
 # Link builders
 def _build_hyperlink(bot, track):
-    member = data.get_member(bot, track.userid, safe=True) or 'Unknown'
     full_title = track.title.replace('`', '').replace('*', '')
     title = _truncate_title(full_title)
-    return '[{0}]({1} "{2} (added by {3})")'.format(title, track.url, full_title, member)
+    return '[{0}]({1} "{2} (added by <@{3}>)")'.format(title, track.url, full_title, track.userid)
 
 
 def _build_shortlink(bot, track):
     """Like _build_hyperlink, but for the URL portion only."""
-    member = data.get_member(bot, track.userid, safe=True) or 'Unknown'
     display_url = 'http://dis.gd' if len(track.url) > URL_LIMIT else track.url
     display_title = _truncate_title(track.title.replace('`', ''))
-    return '({} "{} (added by {})")'.format(display_url, display_title, member)
+    return '({} "{} (added by <@{}>)")'.format(display_url, display_title, track.userid)
 
 
 def _build_track_details(bot, track, index):
     """Creates a string that shows a one liner of the track"""
-    member = data.get_member(bot, track.userid, safe=True) or 'Unknown'
     full_title = track.title.replace('`', '').replace('*', '')
     title = _truncate_title(full_title)
-    return '[[Track {}]({} "{} (added by {})")] ({}) *{}*'.format(
-        index + 1, track.url, full_title, member,
+    return '[[Track {}]({} "{} (added by <@{}>)")] ({}) *{}*'.format(
+        index + 1, track.url, full_title, track.userid,
         utilities.get_time_string(track.duration), title)
 
 
@@ -1382,6 +1379,7 @@ async def _add_track_with_url(bot, guild, check_url, user_id=0, timestamp=0):
 async def _add_track_to_db(bot, guild, check_url, info, user_id=0, timestamp=0):
     """Adds the given track info to the database."""
     hard_threshold = configurations.get(bot, __name__, key='hard_threshold')
+    bot.extra = info
     try:
         chosen_format = info['formats'][0]
         download_url = chosen_format['url']
@@ -1545,14 +1543,15 @@ async def remove_track(bot, context):
         extra=autodelete if use_player_interface else None)
 
 
-def _build_tracklist(bot, guild, tracklist):
+async def _build_tracklist(bot, guild, tracklist):
     header = (
         '# Tracklist generated: {3[1]} {3[0]}\r\n'
         '# Guild: {0}\r\n'
         '# Total tracks: {1}\r\n'
         '# Runtime: {2}\r\n'
     ).format(
-        guild.name, len(tracklist), sum(it.duration for it in tracklist),
+        guild.name, len(tracklist),
+        utilities.get_time_string(sum(it.duration for it in tracklist), text=True, full=True),
         utilities.get_timezone_offset(
             bot, guild_id=guild.id, utc_dt=datetime.utcnow(), as_string=True))
     tracklist_text_list = [header]
@@ -1563,8 +1562,11 @@ def _build_tracklist(bot, guild, tracklist):
         '  Added by {} at {} {}\r\n'  # Info
         '  Duration: {} ID|Timestamp: {}|{}\r\n'  # Duration, internal info
     )
+    all_guild_members = await guild.fetch_members(limit=None).flatten()
     for index, track in enumerate(tracklist):
-        track_author = data.get_member(bot, track.userid, safe=True) or 'Unknown'
+        track_author = (
+            (await data.fetch_member(bot, track.userid, safe=True, search=all_guild_members)) or
+            'Unknown')
         offset, upload_time = utilities.get_timezone_offset(
             bot, guild_id=guild.id, utc_seconds=track.timestamp, as_string=True)
         upload_time_text = time.strftime('%H:%M %m/%d/%Y', time.gmtime(upload_time))
@@ -1583,7 +1585,7 @@ async def format_tracklist(bot, context):
     if not tracklist:
         raise CBException("The playlist queue is empty.", autodelete=autodelete)
 
-    tracklist_string = _build_tracklist(bot, context.guild, tracklist)
+    tracklist_string = await _build_tracklist(bot, context.guild, tracklist)
     tracklist_file = utilities.get_text_as_file(tracklist_string)
 
     if use_player_interface:

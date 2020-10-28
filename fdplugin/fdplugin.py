@@ -1,15 +1,15 @@
-import datetime
 import time
 import praw
 import discord
 
 from prawcore import NotFound
+from datetime import datetime
 
 from jshbot import utilities, plugins, configurations, data, logger, parser
 from jshbot.exceptions import ConfiguredBotException, BotException
 from jshbot.commands import Command, SubCommand, Shortcut, ArgTypes, Arg, Opt, Response
 
-__version__ = '0.1.4'
+__version__ = '0.1.3'
 CBException = ConfiguredBotException('/r/Furry Discord plugin')
 CBException_vc = ConfiguredBotException('Verification checker')
 uses_configuration = True
@@ -91,13 +91,6 @@ async def _check_reddit_karma(bot, username):
     return (submission_karma, comment_karma)
 
 
-def _member_age(member):
-    """Returns a string with the number of days a member has been on a server."""
-    age = (datetime.datetime.now() - member.joined_at).days
-    plural = '' if age == 1 else 's'
-    return "{} day{}".format(age, plural)
-
-
 def _get_verified_role(bot, guild, member=None):
     """Checks for the verified role and returns it unless the member has the role."""
     role_id = data.get(bot, __name__, 'verification_role', guild_id=guild.id)
@@ -105,9 +98,8 @@ def _get_verified_role(bot, guild, member=None):
     if not (role_id or verified_role):
         raise CBException_vc("The verified role has not been set.")
     if member and verified_role in member.roles:
-        raise CBException_vc(
-            "{} already has the role {} (member for {}).".format(
-                member.mention, verified_role.mention, _member_age(member)))
+        raise CBException_vc("{} already has the role {}.".format(
+            member.mention, verified_role.mention))
     return verified_role
 
 
@@ -118,27 +110,19 @@ async def verification_check(bot, context):
     verification_period = configurations.get(bot, __name__, 'verification_period')
 
     # Check that the user has been here for at least the verification period
-    age = (datetime.datetime.now() - member.joined_at).days
+    age = (datetime.now() - member.joined_at).days
+    plural = '' if age == 1 else 's'
     if age >= verification_period:
-        indicator = ':white_check_mark:'
-        qualifies = 'meets the minimum time qualification'
+        response = ':white_check_mark: Member for {} day{}'
+        qualifies = 'qualifies'
         color = discord.Color(0x77b255)
     else:
-        indicator = ':x:'
+        response = ':x: Member for {} day{}'
         qualifies = 'needs to be a member for at least {} days'.format(verification_period)
         color = discord.Color(0xdd2e44)
 
-    after_datetime = member.joined_at - datetime.timedelta(days=1)
-    hint = (
-        "\n\n:warning: Activity qualifications must also be met :warning:\n"
-        "To check for message activity qualifications, use the following search "
-        "parameters to see messages since the member has last joined the server:\n\n"
-        "```\nfrom: {} after: {}\n```"
-    ).format(member, after_datetime.strftime('%Y-%m-%d'))
-
-    description = '{} Member for {}\n{} {} for {}{}'.format(
-        indicator, _member_age(member), member.mention,
-        qualifies, verified_role.mention, hint)
+    description = '{}\n{} {} for {}'.format(
+        response.format(age, plural), member.mention, qualifies, verified_role.mention)
     return Response(embed=discord.Embed(description=description, color=color))
 
 
@@ -196,7 +180,7 @@ async def check_warns(bot, message):
     """Checks for issued warnings."""
     if (not message.guild or
             message.guild.id != configurations.get(bot, __name__, 'guild_id') or
-            not message.content.lower().startswith('.warn ') or
+            not message.content.lower().startswith('!warn ') or
             not data.is_mod(bot, member=message.author) or
             'autolog.py' not in bot.plugins):
         return
@@ -205,7 +189,7 @@ async def check_warns(bot, message):
     if len(split) < 3:  # Not enough arguments
         return
     name = split[2][1:-1] if 2 in quotes else split[2]
-    member = data.get_member(bot, name, guild=message.guild, safe=True, strict=True)
+    member = await data.fetch_member(bot, name, guild=message.guild, safe=True, strict=True)
     if not member or data.is_mod(bot, member=member):  # Member not found or is another mod
         return
 

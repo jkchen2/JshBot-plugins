@@ -628,10 +628,9 @@ async def character_search(bot, context):
 
 def _character_one_liner(bot, character):
     """Formats a character entry as a single line for browsing."""
-    owner = data.get_member(bot, character.owner_id, safe=True, attribute='mention')
     character_type = CHARACTER_TYPES[character.data['type']][1]
-    return '**{}** [{}] by {}'.format(
-        character.name, character_type, owner if owner else 'Unknown')
+    return '**{}** [{}] by <@{}>'.format(
+        character.name, character_type, character.owner_id)
 
 
 def _build_browser_menu(bot, embed, page_index, character_listing):
@@ -741,8 +740,6 @@ async def character_display(bot, context):
 def _build_profile(bot, embed, character_index, characters, image_index):
     """Edits the given embed for the given character."""
     character = characters[character_index]
-    owner = data.get_member(bot, character.owner_id, safe=True, attribute='mention')
-    owner = owner if owner else 'Unknown'
     version = character.data['version']
     embed.clear_fields()
     if character.data['embed_color'] is not None:
@@ -751,7 +748,9 @@ def _build_profile(bot, embed, character_index, characters, image_index):
         embed.color = discord.Embed.Empty
 
     # Owner description
-    owner_text = '{} by {}'.format(CHARACTER_TYPES[character.data['type']][0], owner)
+    owner_text = '{} by <@{}>'.format(
+        CHARACTER_TYPES[character.data['type']][0], character.owner_id
+    )
     embed.add_field(
         name=character.name, inline=False, value='Character [ {} / {} ] | {}'.format(
             character_index + 1, len(characters), owner_text))

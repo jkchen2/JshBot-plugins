@@ -13,7 +13,7 @@ from jshbot.exceptions import BotException, ConfiguredBotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.2.1'
+__version__ = '0.2.2'
 uses_configuration = True
 CBException = ConfiguredBotException('GDQ plugin')
 
@@ -43,7 +43,7 @@ def get_commands(bot):
             SubCommand(
                 Opt('notify'),
                 Opt('channel', optional=True,
-                    check=lambda b, m, v, *a: data.is_mod(b, m.guild, m.author.id),
+                    check=lambda b, m, v, *a: data.is_mod(b, member=m.author),
                     check_error='Only bot moderators can notify the channel.'),
                 Arg('title', argtype=ArgTypes.MERGED),
                 doc='Sends a message to either the user or the channel for the given '

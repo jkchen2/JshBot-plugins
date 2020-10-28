@@ -111,7 +111,7 @@ async def awoo_leaderboard(bot, context):
     stats = [[], []]  # debt/violations, user
     for index, entry in enumerate(entries):
         stats[0].append('`{0}.` ${1.debt} | {1.violations}'.format(index + 1, entry))
-        user = data.get_member(bot, entry.user_id, safe=True, attribute='mention')
+        user = await data.fetch_member(bot, entry.user_id, safe=True, attribute='mention')
         user = user or 'Unknown ({})'.format(entry.user_id)
         stats[1].append('`\u200b`{}'.format(user))
 
@@ -169,8 +169,10 @@ async def awoo_whitelist(bot, context):
         if not whitelist:
             raise CBException("There are no whitelisted users.")
         users = [
-            (data.get_member(bot, it, attribute='mention') or 'Unknown ({})'.format(it))
-            for it in whitelist]
+            (
+                (await data.fetch_member(bot, it, attribute='mention', safe=True)) or
+                'Unknown ({})'.format(it)
+            ) for it in whitelist]
         return Response(
             embed=discord.Embed(title="Whitelisted users", description=', '.join(users)))
 

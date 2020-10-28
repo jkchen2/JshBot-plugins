@@ -18,7 +18,7 @@ from jshbot.exceptions import BotException, ConfiguredBotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.2.6'
+__version__ = '0.2.5'
 uses_configuration = True
 CBException = ConfiguredBotException('Tags')
 
@@ -40,13 +40,13 @@ class TagConverter():
         self.voice_channel_bypass = voice_channel_bypass
         self.propagate_error = True
 
-    def __call__(self, bot, message, value, *a, **kwargs):
+    async def __call__(self, bot, message, value, *a, **kwargs):
         tag = _get_tag(bot, value, message.guild.id)
 
         if self.tag_owner:
-            is_mod = data.is_mod(bot, message.guild, message.author.id)
+            is_mod = data.is_mod(bot, member=message.author)
             if tag.author != message.author.id and not is_mod:
-                tag_author = data.get_member(
+                tag_author = await data.fetch_member(
                     bot, tag.author, guild=message.guild, safe=True, strict=True)
                 if tag_author:
                     raise CBException("You are not the tag owner, {}.".format(tag_author.mention))
@@ -343,7 +343,7 @@ async def tag_info(bot, context):
         embed = discord.Embed(
             title=':information_source: Tag: {}'.format(tag.name), colour=discord.Color(0x3b88c3))
         embed.add_field(name='Database name', value=tag.key)
-        author = data.get_member(
+        author = await data.fetch_member(
             bot, tag.author, guild=context.guild, attribute='mention', safe=True, strict=True)
         if author is None:
             author = '[Not found]'
@@ -352,7 +352,7 @@ async def tag_info(bot, context):
         embed.add_field(name='Flags', value=flags if flags else '[None]')
         embed.add_field(name='Hits', value=str(tag.hits))
         if tag.last_used_by:
-            last_used_by = data.get_member(
+            last_used_by = await data.fetch_member(
                 bot, tag.last_used_by, guild=context.guild,
                 attribute='mention', safe=True, strict=True)
             if last_used_by is None:
@@ -674,12 +674,12 @@ async def tag_export(bot, context):
     for tag in tags:
         if tag.flags & 2 == 2 and not destination:  # Skip private tags
             continue
-        author_name = data.get_member(
+        author_name = await data.fetch_member(
             bot, tag.author, guild=context.guild, safe=True, strict=True)
         if not author_name:
             author_name = '[Not found]'
         if tag.last_used_by:
-            last_used_by_name = data.get_member(
+            last_used_by_name = await data.fetch_member(
                 bot, tag.last_used_by, guild=context.guild, safe=True, strict=True)
             if not last_used_by_name:
                 last_used_by_name = '[Not found]'
@@ -908,8 +908,9 @@ async def _play_sound_tag(bot, tag, url, voice_channel, elevation=0, delay=30):
         sound_file = await data.add_to_cache(bot, download_url, name=url)
 
     # TODO: Check ffmpeg options?
-    ffmpeg_options = '-protocol_whitelist "file,crypto,http,https,tcp,tls"'
-    audio_source = discord.FFmpegPCMAudio(sound_file, before_options=ffmpeg_options)
+    #ffmpeg_options = '-protocol_whitelist "file,http,https,tcp,tls"'
+    #audio_source = discord.FFmpegPCMAudio(sound_file, before_options=ffmpeg_options)
+    audio_source = discord.FFmpegPCMAudio(sound_file)
     audio_source = discord.PCMVolumeTransformer(audio_source, volume=tag.volume)
     await utilities.join_and_ready(bot, voice_channel, is_mod=elevation >= 1)
     try:
