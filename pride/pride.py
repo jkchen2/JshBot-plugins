@@ -10,7 +10,7 @@ from jshbot.commands import (
         Command, SubCommand, Shortcut, ArgTypes,
         Arg, Opt, Response, Attachment, MessageTypes)
 
-__version__ = '0.1.2'
+__version__ = '0.1.3'
 CBException = ConfiguredBotException('Pride flag creator')
 uses_configuration = False
 
@@ -291,8 +291,9 @@ def _rotate_flag(flag, rotation):
 
 
 def _blur_flag(flag, blur):
-    """Blurs the flag by the given number of pixels."""
-    return flag.filter(ImageFilter.GaussianBlur(radius=blur))
+    """Blurs the flag by the given percentage size."""
+    radius = int(flag.size[0] * blur / 100)
+    return flag.filter(ImageFilter.GaussianBlur(radius=radius))
 
 
 def _process_overlay(image, flag, opacity=0.5, mask=False, rotation=0, blur=0):
@@ -450,8 +451,8 @@ async def pride_interactive(bot, context):
         response.state['path'] = 'blur'
         response.embed.set_field_at(
             0, name='Blur style options',
-            value='Blur radius in pixels:\n{}'.format(' | '.join(
-                '{} {} px'.format(utilities.NUMBER_EMOJIS[index + 1], it)
+            value='Blur percentage:\n{}'.format(' | '.join(
+                '{} {}%'.format(utilities.NUMBER_EMOJIS[index + 1], it)
                 for index, it in enumerate(blur_options))))
         return [
             response.path_process(*response.process_args, **response.process_kwargs, blur=it)
@@ -508,14 +509,14 @@ async def pride_interactive(bot, context):
             # Finished selecting mask. Now selecting opacity
             if stage == 0:
                 response.process_kwargs['mask'] = result_index == 1
-                if result_index == 0:
-                    del opacity_list[-1]
+                if result_index == 0:  # non-mask overlay can have 33% opacity
+                    opacity_list = [0.25, 0.33, 0.5, 0.75]
                 images = [
                     _process_overlay(
                         *response.process_args, opacity=it, **response.process_kwargs)
                     for it in opacity_list]
                 style_description = 'Opacity:\n{}'.format(' | '.join(
-                    ':{}: {}%'.format(utilities.NUMBER_EMOJIS[index + 1], it*100)
+                    '{} {}%'.format(utilities.NUMBER_EMOJIS[index + 1], it*100)
                     for index, it in enumerate(opacity_list)))
                 response.embed.set_field_at(
                     0, name='Opacity style options', value=style_description)
@@ -587,11 +588,16 @@ async def pride_interactive(bot, context):
         else:
             converter = FlagConverter(
                 include_flag_list=False, check_attachments=True)
+            if utilities.clean_text(result.content) == 'cancel':
+                response.embed.description = "The menu was cancelled."
+                response.embed.remove_field(0)
+                await response.message.edit(embed=response.embed)
+                return False
             try:
                 flag_key, flag_data = converter(bot, result, result.content)
             except BotException as e:
                 response.embed.description = (
-                    "{} Type one of the flags listed below:\n{}").format(
+                    "{} Say one of the flag names listed below:\n{}").format(
                         e.error_details, ', '.join(_get_available_flags()))
                 await response.message.edit(embed=response.embed)
                 try:
@@ -629,16 +635,18 @@ async def pride_interactive(bot, context):
             await bot.handle_response(
                 context.message, response, message_reference=response.message, context=context)
 
-    description = 'Please type the flag you want to use. Choose from one below:\n{}'.format(
+    description = "Please say the flag name you want to use. Choose from one below:\n{}".format(
         ', '.join(_get_available_flags()))
     embed = discord.Embed(
         title=':gay_pride_flag: Pride flag avatar creator', description=description)
     embed.add_field(
-        name='\u200b', value="To use a custom flag, paste the image URL below or upload it.")
+        name='\u200b', value=(
+            "To use a custom flag, paste the image URL below or upload it."
+            "\nTo cancel the menu, say `cancel`."))
     extra = {
         'event': 'message',
         'loop': True,
-        'kwargs': {'check': lambda m: m.author == context.author}
+        'kwargs': {'check': lambda m: m.author == context.author and m.channel == context.channel}
     }
     return Response(
         embed=embed, message_type=MessageTypes.WAIT,
