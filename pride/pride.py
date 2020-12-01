@@ -10,7 +10,7 @@ from jshbot.commands import (
         Command, SubCommand, Shortcut, ArgTypes,
         Arg, Opt, Response, Attachment, MessageTypes)
 
-__version__ = '0.1.3'
+__version__ = '0.1.4'
 CBException = ConfiguredBotException('Pride flag creator')
 uses_configuration = False
 
@@ -92,7 +92,7 @@ def get_commands(bot):
                     always_include=True, default=0, quotes_recommended=False,
                     convert=int, check=lambda b, m, v, *a: 0 <= v <= 360,
                     check_error='Rotation angle must be between 0 and 360 inclusive.'),
-                Opt('blur', attached='pixels', optional=True, default=0,
+                Opt('blur', attached='percent', optional=True, default=0,
                     always_include=True, convert=int, group='style',
                     quotes_recommended=False, check=lambda b, m, v, *a: 0 <= v <= 30,
                     check_error='Blur value must be between 0 and 30 inclusive.'),
@@ -160,6 +160,8 @@ async def _get_image(bot, context=None, message=None, url=None):
                     bot, text, guild=context.guild, strict=True, safe=True
                 )
                 if test:
+                    ## Re-fetch user in an attempt to update the avatar URL
+                    test = await bot.fetch_user(test.id)
                     url = test.avatar_url_as(format='png')
             if not url:
                 if not utilities.valid_url(text):

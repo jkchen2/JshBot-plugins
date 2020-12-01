@@ -18,7 +18,7 @@ from jshbot.exceptions import BotException, ConfiguredBotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.2.6'
+__version__ = '0.2.7'
 uses_configuration = True
 CBException = ConfiguredBotException('Tags')
 
@@ -935,7 +935,7 @@ def _format_tag(tag, stripped=[], clean=True):
     """Formats the given tag in the proper markdown syntax."""
     special = [flag[0] for flag in _get_flags(tag.flags) if flag.lower() not in stripped]
     if clean:
-        tag_name = re.sub('[[\]()<>#/",`\\\\]', '', tag.name)
+        tag_name = re.sub(r'[[\]()<>#/",`\\\*]', '', tag.name)
     else:
         tag_name = tag.name
     if special:
