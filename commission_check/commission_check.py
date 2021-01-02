@@ -1,13 +1,14 @@
 import time
-import discord
 
 from datetime import timezone as tz
 
+import discord
+
 from jshbot import utilities, plugins, configurations, data, logger
 from jshbot.exceptions import ConfiguredBotException
-from jshbot.commands import Command, SubCommand, Shortcut, ArgTypes, Arg, Opt, Response
+from jshbot.commands import Command, SubCommand, ArgTypes, Arg, Opt, Response
 
-__version__ = '0.1.1'
+__version__ = '0.2.0'
 CBException = ConfiguredBotException('Commission channel checker')
 uses_configuration = True
 
@@ -24,6 +25,10 @@ def get_commands(bot):
                 Opt('cooldown', attached='seconds', optional=True,
                     convert=int, check=lambda b, m, v, *a: v > 0,
                     check_error='Must be greater than 0 seconds.',
+                    quotes_recommended=False),
+                Opt('maxmedia', attached='amount', optional=True,
+                    convert=int, check=lambda b, m, v, *a: v >= 0,
+                    check_error='Must be greater than or equal to 0.',
                     quotes_recommended=False),
                 doc='Configures the commission channel rules.',
                 elevated_level=1, function=commission_configure),
@@ -47,11 +52,19 @@ def get_commands(bot):
         allow_direct=False)]
 
 
+async def _safe_send(messageable, *args, **kwargs):
+    """Wraps sending a message to the messageable in case DMs are disabled by the receiver."""
+    try:
+        await messageable.send(*args, **kwargs)
+    except Exception as err:
+        logger.exception("Failed to send a message to {}:".format(messageable))
+
+
 async def _notify_advertisement_available(
         bot, scheduled_time, payload, search, destination, late, *args):
     """Notifies the user that they can advertise again."""
     messageable = utilities.get_messageable(bot, destination)
-    await messageable.send(embed=discord.Embed(
+    await _safe_send(messageable, embed=discord.Embed(
         color=discord.Color(0x77b255), description=(
             'You are now eligible to post another advertisement in the commission channel.\n'
             'Note that doing so will automatically delete your previous advertisement.')))
@@ -132,21 +145,26 @@ async def commission_configure(bot, context):
     """Configures the channel and cooldown for the commission channel rules."""
     rules = data.get(bot, __name__, 'rules', guild_id=context.guild.id, default={})
     default_cooldown = configurations.get(bot, __name__, 'default_cooldown')
+    default_maxmedia = configurations.get(bot, __name__, 'default_maxmedia')
     replace_channel = context.options.get('channel', rules.get('channel'))
     replace_cooldown = context.options.get('cooldown', rules.get('cooldown', default_cooldown))
+    replace_maxmedia = context.options.get('maxmedia', rules.get('maxmedia', default_maxmedia))
     if not replace_channel:
         raise CBException("No commission channel configured.")
 
     # Reset advertisement data
-    rules = { 'channel': replace_channel, 'cooldown': replace_cooldown }
+    rules = {
+        'channel': replace_channel, 'cooldown': replace_cooldown, 'maxmedia': replace_maxmedia
+    }
     data.add(bot, __name__, 'rules', rules, guild_id=context.guild.id)
     data.remove(
         bot, __name__, 'advertisements', guild_id=context.guild.id, volatile=True, safe=True)
     await _get_advertisement_data(bot, context.guild)
 
-    description = 'Channel: {0.mention}\nCooldown: {1}'.format(
+    description = 'Channel: {0.mention}\nCooldown: {1}\nMax media: {2}'.format(
         data.get_channel(bot, replace_channel),
-        utilities.get_time_string(replace_cooldown, text=True, full=True))
+        utilities.get_time_string(replace_cooldown, text=True, full=True),
+        replace_maxmedia)
     embed = discord.Embed(title='Commission channel configuration:', description=description)
     return Response(embed=embed)
 
@@ -157,6 +175,49 @@ async def commission_list(bot, context):
     return Response(embed=discord.Embed(
         title='List of advertisers:',
         description=', '.join(it.author.mention for it in advertisement_data.values())))
+
+
+async def _send_advertisement_backup(message):
+    """Sends the author the message a backup of the advertisement's contents."""
+    discord_file = discord.File(
+        utilities.get_text_as_file(message.content), filename='advertisement.txt')
+    await _safe_send(
+        message.author, content="Here is a copy of the advertisement if you need it:",
+        file=discord_file)
+
+
+async def _verify_max_media(bot, message):
+    rules = data.get(bot, __name__, "rules", guild_id=message.guild.id, default={})
+    total_attachments = len(message.attachments)
+
+    ## Check embeds
+    non_twitter_embeds = list()
+    twitter_embeds = set()
+    for embed in message.embeds:
+        if embed.image or embed.video or (embed.type == "article" and embed.thumbnail):
+            if embed.url.startswith("https://twitter.com/"):
+                twitter_embeds.add(embed.url)
+            else:
+                non_twitter_embeds.append(embed)
+    total_image_embeds = len(non_twitter_embeds) + len(twitter_embeds)
+
+    if total_attachments + total_image_embeds > rules["maxmedia"]:
+        try:
+            await message.delete()
+        except discord.NotFound:
+            return
+        reason = (
+            "Your advertisement exceeds the total amount of media allowed ({}), "
+            "and has been removed.\n\nAttachments: {}\nEmbedded media: {}\n\n"
+            "(Hint: you can disable a link's automatic embed by wrapping it in angled brackets. "
+            "For example, instead of typing `https://example.com/`, type "
+            "`<https://example.com/>`)").format(
+                rules["maxmedia"], total_attachments, total_image_embeds)
+        await _safe_send(message.author, embed=discord.Embed(
+            colour=discord.Colour(0xe75a70), description=reason))
+        await _send_advertisement_backup(message)
+        return False
+    return True
 
 
 @plugins.listen_for('on_message')
@@ -188,13 +249,13 @@ async def check_commission_advertisement(bot, message):
 
     # Not enough time has passed
     if time_delta < cooldown:
-        # content_backup = message.content  # TODO: Consider sending the user a content backup?
+        await _send_advertisement_backup(message)
         await message.delete()
         wait_for = utilities.get_time_string(cooldown - time_delta, text=True, full=True)
         warning = (
             'You cannot send another advertisement at this time. '
             'You must wait {}.').format(wait_for)
-        await message.author.send(embed=discord.Embed(
+        await _safe_send(message.author, embed=discord.Embed(
             colour=discord.Colour(0xffcc4d), description=warning))
         return
 
@@ -204,6 +265,10 @@ async def check_commission_advertisement(bot, message):
             await advertisement_data[author_id].delete()
         except:  # User deleted their advertisement already
             logger.warn("Failed to delete the last advertisement.")
+
+    ## Check for media limitations
+    if not await _verify_max_media(bot, message):
+        return
 
     # Schedule a notification for when a new advertisement post is eligible
     utilities.schedule(
@@ -225,7 +290,7 @@ async def check_commission_advertisement(bot, message):
         'For convenience, you will be notified when you are eligible to make '
         'a new post.').format(
             utilities.get_time_string(cooldown, text=True, full=True))
-    await message.author.send(embed=discord.Embed(
+    await _safe_send(message.author, embed=discord.Embed(
         colour=discord.Colour(0x77b255), description=notification))
 
 
@@ -262,7 +327,7 @@ async def check_recently_deleted(bot, message):
             'Heads up, you have deleted your last advertisement within 10 minutes of posting it '
             '(and nobody else posted an advertisement during that time).\n\n'
             'You can submit a revised advertisement now if you wish.')
-        await message.author.send(embed=discord.Embed(description=notification))
+        await _safe_send(message.author, embed=discord.Embed(description=notification))
 
     # User deleted their advertisement for some reason?
     # Keep message creation time to prevent users from circumventing the cooldown
@@ -278,3 +343,21 @@ async def check_recently_deleted(bot, message):
         # Add persistence entry
         deleted_persistence[str(author_id)] = message_time
         data.add(bot, __name__, 'recently_deleted', deleted_persistence, guild_id=message.guild.id)
+
+
+@plugins.listen_for('on_raw_message_edit')
+async def check_edited_messages(bot, payload):
+    try:
+        channel = await bot.fetch_channel(payload.channel_id)
+        message = await channel.fetch_message(payload.message_id)
+    except discord.NotFound:
+        return
+    if isinstance(message.channel, discord.abc.PrivateChannel):
+        return
+    guild_data = data.get(bot, __name__, None, guild_id=message.guild.id, default={})
+    if (not guild_data.get('rules') or
+            message.channel.id != guild_data['rules']['channel'] or
+            message.author.id in guild_data.get('whitelist', []) or
+            message.author.bot):
+        return
+    await _verify_max_media(bot, message)
