@@ -8,7 +8,7 @@ from jshbot import utilities, plugins, configurations, data, logger
 from jshbot.exceptions import ConfiguredBotException
 from jshbot.commands import Command, SubCommand, ArgTypes, Arg, Opt, Response
 
-__version__ = '0.2.0'
+__version__ = '0.2.1'
 CBException = ConfiguredBotException('Commission channel checker')
 uses_configuration = True
 
@@ -194,7 +194,10 @@ async def _verify_max_media(bot, message):
     non_twitter_embeds = list()
     twitter_embeds = set()
     for embed in message.embeds:
-        if embed.image or embed.video or (embed.type == "article" and embed.thumbnail):
+        if (
+            embed.type == "image" or embed.image or embed.video or
+            (embed.type == "article" and embed.thumbnail)
+        ):
             if embed.url.startswith("https://twitter.com/"):
                 twitter_embeds.add(embed.url)
             else:
@@ -349,10 +352,10 @@ async def check_recently_deleted(bot, message):
 async def check_edited_messages(bot, payload):
     try:
         channel = await bot.fetch_channel(payload.channel_id)
+        if isinstance(channel, discord.abc.PrivateChannel):
+            return
         message = await channel.fetch_message(payload.message_id)
-    except discord.NotFound:
-        return
-    if isinstance(message.channel, discord.abc.PrivateChannel):
+    except (discord.NotFound, discord.Forbidden):
         return
     guild_data = data.get(bot, __name__, None, guild_id=message.guild.id, default={})
     if (not guild_data.get('rules') or
