@@ -20,7 +20,7 @@ from jshbot.exceptions import ConfiguredBotException, BotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.3.10'
+__version__ = '0.3.11'
 CBException = ConfiguredBotException('Music playlist')
 uses_configuration = True
 
@@ -373,8 +373,8 @@ class MusicPlayer():
         """Sets up player messages and the main interface structure."""
         self.state = States.LOADING
         self.loading_interface = True
-        self.satellite_message = await self.channel.send(embed=discord.Embed())
-        self.mirror_message = await self.channel.send(embed=discord.Embed())
+        self.satellite_message = await self.channel.send(embed=discord.Embed(title="\u200b"))
+        self.mirror_message = await self.channel.send(embed=discord.Embed(title="\u200b"))
         embed = discord.Embed(colour=discord.Colour(0xffab00))
         embed.add_field(  # Title
             name=':arrows_counterclockwise: **[]**',
