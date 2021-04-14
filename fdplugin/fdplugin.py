@@ -9,7 +9,7 @@ from jshbot import utilities, plugins, configurations, data, logger, parser
 from jshbot.exceptions import ConfiguredBotException, BotException
 from jshbot.commands import Command, SubCommand, Shortcut, ArgTypes, Arg, Opt, Response
 
-__version__ = '0.1.4'
+__version__ = '0.1.5'
 CBException = ConfiguredBotException('/r/Furry Discord plugin')
 CBException_vc = ConfiguredBotException('Verification checker')
 uses_configuration = True
@@ -122,9 +122,9 @@ async def verification_check(bot, context):
     # Check that the user has been here for at least the verification period
     age = (datetime.datetime.now() - member.joined_at).days
     if age >= verification_period:
-        indicator = ':white_check_mark:'
+        indicator = ':warning:'
         qualifies = 'meets the minimum time qualification'
-        color = discord.Color(0x77b255)
+        color = discord.Color(0xffcc4d)
     else:
         indicator = ':x:'
         qualifies = 'needs to be a member for at least {} days'.format(verification_period)
@@ -132,11 +132,12 @@ async def verification_check(bot, context):
 
     after_datetime = member.joined_at - datetime.timedelta(days=1)
     hint = (
-        "\n\n:warning: Activity qualifications must also be met :warning:\n"
-        "To check for message activity qualifications, use the following search "
+        "\n\n:warning: __**Activity qualifications must also be met**__ :warning:\n"
+        "A moderator will have to confirm this manually. "
+        "To check for message activity, use the following search "
         "parameters to see messages since the member has last joined the server:\n\n"
         "```\nfrom: {} after: {}\n```"
-    ).format(member, after_datetime.strftime('%Y-%m-%d'))
+    ).format(member.id, after_datetime.strftime('%Y-%m-%d'))
 
     description = '{} Member for {}\n{} {} for {}{}'.format(
         indicator, _member_age(member), member.mention,
