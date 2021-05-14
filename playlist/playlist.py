@@ -20,7 +20,7 @@ from jshbot.exceptions import ConfiguredBotException, BotException
 from jshbot.commands import (
     Command, SubCommand, Shortcut, ArgTypes, Attachment, Arg, Opt, MessageTypes, Response)
 
-__version__ = '0.3.11'
+__version__ = '0.3.12'
 CBException = ConfiguredBotException('Music playlist')
 uses_configuration = True
 
@@ -121,6 +121,8 @@ def get_commands(bot):
                     doc='Switches between repeating playlist and single play queue mode.'),
                 Opt('mirrorchat', optional=True, group='options',
                     doc='Mirrors the last few chat messages to a message above the player.'),
+                Opt('autodisconnect', optional=True, group='options',
+                    doc='Automatically disconnects the bot if all users leave the channel.'),
                 doc='Configures the music player properties.',
                 function=configure_player),
             SubCommand(Opt('clear'), doc='Clears the playlist.', function=clear_playlist),
@@ -207,7 +209,6 @@ class MusicPlayer():
         self.satellite_message = None
         self.satellite_data = None
         self.mirror_message = None
-        self.mirror_chats = None
         self.mirror_last_notification = None
         self.mirror_notifications = deque(maxlen=5)
         self.mirror_chats = deque(maxlen=12)
@@ -273,6 +274,8 @@ class MusicPlayer():
             self.bot, __name__, 'shuffle', guild_id=guild_id, default=Modes.QUEUE)
         self.mirror_chat = data.get(
             self.bot, __name__, 'mirror_chat', guild_id=guild_id, default=False)
+        self.auto_disconnect = data.get(
+            self.bot, __name__, 'auto_disconnect', guild_id=guild_id, default=False)
 
         self.volume = data.get(self.bot, __name__, 'volume', guild_id=guild_id, default=1.0)
         if self.source:
@@ -490,9 +493,18 @@ class MusicPlayer():
                 asyncio.ensure_future(self.update_interface(ignore_ratelimit=True))
 
             if self.listeners == 0:
-                self.autopaused = True
-                self.notification = "The player has been automatically paused"
-                asyncio.ensure_future(self.pause())
+                if self.auto_disconnect:
+                    asyncio.ensure_future(
+                        self.stop(
+                            text=(
+                                "The player has been stopped due to all users leaving the channel."
+                            )
+                        )
+                    )
+                else:
+                    self.autopaused = True
+                    self.notification = "The player has been automatically paused"
+                    asyncio.ensure_future(self.pause())
 
     def update_listeners(self, update_interface=True):
         """Updates the number of listeners and skips the song if enough people have voted."""
@@ -1266,8 +1278,9 @@ class MusicPlayer():
                     asyncio.ensure_future(member.send(embed=help_embed))
 
         except Exception as e:
-            self.bot.extra = e
-            logger.warn("Something bad happened (%s). %s", type(e), e)
+            if not isinstance(e, asyncio.CancelledError):
+                self.bot.extra = e
+                logger.warn("Something bad happened (%s). %s", type(e), e)
 
 
 # Link builders
@@ -1781,52 +1794,54 @@ async def configure_player(bot, context):
     changes = []
     is_dj = data.has_custom_role(bot, __name__, 'dj', member=context.author)
     is_mod = context.elevation > 0
+    dj_prereq = "You must be a DJ in order to "
+    mod_prereq = "You must be a bot moderator in order to "
 
     if 'threshold' in options:
         if not is_dj:
-            raise CBException("You must be a DJ in order to change the length threshold.")
+            raise CBException(dj_prereq + "change the length threshold.")
         threshold = options['threshold']
         data.add(bot, __name__, 'threshold', threshold, guild_id=guild_id)
         changes.append('Duration threshold set to {} seconds.'.format(threshold))
 
     if 'cutoff' in options:
         if not is_dj:
-            raise CBException("You must be a DJ in order to change the length cutoff.")
+            raise CBException(dj_prereq + "change the length cutoff.")
         cutoff = options['cutoff']
         data.add(bot, __name__, 'cutoff', cutoff, guild_id=guild_id)
         changes.append('Cutoff set to {} seconds.'.format(cutoff))
 
     if 'usertracks' in options:
         if not is_dj:
-            raise CBException("You must be a DJ in order to change the user track limit.")
+            raise CBException(dj_prereq + "change the user track limit.")
         limit = options['usertracks']
         data.add(bot, __name__, 'user_track_limit', limit, guild_id=guild_id)
         changes.append('User track limit set to {} track(s).'.format(limit))
 
     if 'totaltracks' in options:
         if not is_dj:
-            raise CBException("You must be a DJ in order to change the total track limit.")
+            raise CBException(dj_prereq + "change the total track limit.")
         limit = options['totaltracks']
         data.add(bot, __name__, 'total_track_limit', limit, guild_id=guild_id)
         changes.append('Total track limit set to {} track(s).'.format(limit))
 
     if 'djrole' in options:
         if not is_mod:
-            raise CBException("You must be a bot moderator in order to change the DJ role.")
+            raise CBException(mod_prereq + "change the DJ role.")
         dj_role = options['djrole']
         data.add_custom_role(bot, __name__, 'dj', dj_role)
         changes.append('Set the DJ role to {}.'.format(dj_role.mention))
 
     if 'channel' in options:
         if not is_mod:
-            raise CBException("You must be a bot moderator in order to change the player channel.")
+            raise CBException(mod_prereq + "change the player channel.")
         text_channel = options['channel']
         data.add(bot, __name__, 'channel', text_channel.id, guild_id=guild_id)
         changes.append('Set the text channel restriction to {}.'.format(text_channel.mention))
 
     if 'switchcontrol' in options:
         if not is_mod:
-            raise CBException("You must be a bot moderator in order to cycle control modes.")
+            raise CBException(mod_prereq + "cycle control modes.")
         control = data.get(bot, __name__, 'control', guild_id=guild_id, default=Control.PARTIAL)
         control = 0 if control == len(Control) - 1 else control + 1
         data.add(bot, __name__, 'control', control, guild_id=guild_id)
@@ -1835,7 +1850,7 @@ async def configure_player(bot, context):
 
     if 'switchmode' in options:
         if not is_mod:
-            raise CBException("You must be a bot moderator in order to cycle player modes.")
+            raise CBException(mod_prereq + "cycle player modes.")
         mode = data.get(bot, __name__, 'mode', guild_id=guild_id, default=Modes.QUEUE)
         mode = 0 if mode == len(Modes) - 1 else mode + 1
         data.add(bot, __name__, 'mode', mode, guild_id=guild_id)
@@ -1843,10 +1858,18 @@ async def configure_player(bot, context):
 
     if 'mirrorchat' in options:
         if not is_mod:
-            raise CBException("You must be a bot moderator in order to toggle chat mirroring.")
+            raise CBException(mod_prereq + "toggle chat mirroring.")
         mirror = not data.get(bot, __name__, 'mirror_chat', guild_id=guild_id, default=False)
         data.add(bot, __name__, 'mirror_chat', mirror, guild_id=guild_id)
         changes.append('{}abled chat mirroring.'.format('En' if mirror else 'Dis'))
+
+    if 'autodisconnect' in options:
+        if not is_mod:
+            raise CBException(mod_prereq + "toggle automatic disconnecting.")
+        auto_disconnect = not data.get(
+            bot, __name__, 'auto_disconnect', guild_id=guild_id, default=False)
+        data.add(bot, __name__, 'auto_disconnect', auto_disconnect, guild_id=guild_id)
+        changes.append('{}abled auto disconnecting.'.format('En' if auto_disconnect else 'Dis'))
 
     # Defaults
     default_threshold = configurations.get(bot, __name__, key='max_threshold')
@@ -1867,6 +1890,7 @@ async def configure_player(bot, context):
     control = data.get(bot, __name__, 'control', guild_id=guild_id, default=Control.PARTIAL)
     mode = data.get(bot, __name__, 'mode', guild_id=guild_id, default=Modes.QUEUE)
     chat_mirroring = data.get(bot, __name__, 'mirror_chat', guild_id=guild_id, default=False)
+    auto_disconnect = data.get(bot, __name__, 'auto_disconnect', guild_id=guild_id, default=False)
     text_channel_id = data.get(bot, __name__, 'channel', guild_id=guild_id)
     text_channel = context.guild.get_channel(text_channel_id)
 
@@ -1874,7 +1898,8 @@ async def configure_player(bot, context):
         title='Player configuration', description=(
             'Text channel: {}\nTotal track limit: {}\n'
             'User track limit: {}\nThreshold: {}\nCutoff: {}\n'
-            'DJ Role: {}\nControl: {}\nPlayer mode: {}\nChat mirroring: {}'.format(
+            'DJ Role: {}\nControl: {}\nPlayer mode: {}\n'
+            'Chat mirroring: {}\nAutomatic disconnecting: {}'.format(
                 text_channel.mention if text_channel else 'None',
                 '{} tracks'.format(total_track_limit),
                 '{} tracks'.format(user_track_limit),
@@ -1883,7 +1908,8 @@ async def configure_player(bot, context):
                 dj_role.mention if dj_role else 'None',
                 ('Public', 'Partially public', 'DJs only')[control],
                 ('Repeating playlist', 'Single play queue')[mode],
-                chat_mirroring)
+                chat_mirroring,
+                auto_disconnect)
         )
     )
 
@@ -2115,8 +2141,10 @@ async def setup_player(bot, context):
         elif context.arguments[0]:  # Query given (add track)
             adding_track = True
             add_track_response = await add_track(bot, context)
-            # add_track_response.message_type = MessageTypes.PERMANENT
             await bot.handle_response(context.message, add_track_response, context=context)
+            await _check_player_restrictions(
+                bot, context, music_player, use_player_interface, autodelete
+            )
 
     # Check autoplay permissions
     use_autoplay = False
